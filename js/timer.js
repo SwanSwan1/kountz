@@ -1,13 +1,14 @@
 /**
  * timer.js - Timer de pause avec notifications
- * Gère le compte à rebours, les notifications et les vibrations
+ * Utilise un timestamp absolu pour survivre à la mise en arrière-plan
  */
 
 const Timer = (() => {
   let intervalId = null;
-  let remainingSeconds = 0;
+  let endTime = null;       // Timestamp absolu de fin (ms)
   let totalSeconds = 0;
   let isPaused = false;
+  let pausedRemaining = 0;  // Secondes restantes au moment de la pause
   let onTickCallback = null;
   let onCompleteCallback = null;
   let audioCtx = null;
@@ -28,36 +29,54 @@ const Timer = (() => {
    * @param {Function} onComplete - Appelé quand le timer est terminé
    */
   function start(minutes, onTick, onComplete) {
-    stop(); // Arrête tout timer en cours
+    stop();
 
     totalSeconds = Math.round(minutes * 60);
-    remainingSeconds = totalSeconds;
+    endTime = Date.now() + totalSeconds * 1000;
     isPaused = false;
+    pausedRemaining = 0;
     onTickCallback = onTick;
     onCompleteCallback = onComplete;
+
+    // Sauvegarde l'état dans localStorage pour persistance
+    saveState();
 
     // Premier tick immédiat
     tick();
 
-    intervalId = setInterval(() => {
-      if (!isPaused) {
-        remainingSeconds--;
-        tick();
+    // Interval pour le tick visuel (chaque seconde)
+    intervalId = setInterval(tick, 1000);
 
-        if (remainingSeconds <= 0) {
-          complete();
-        }
-      }
-    }, 1000);
+    // Planifie la notification via le Service Worker si disponible
+    scheduleNotification(totalSeconds);
   }
 
   /**
-   * Tick interne - notifie le callback
+   * Tick interne - calcule le temps restant depuis le timestamp absolu
    */
   function tick() {
+    if (isPaused) {
+      notifyTick(pausedRemaining);
+      return;
+    }
+
+    const remaining = Math.max(0, Math.ceil((endTime - Date.now()) / 1000));
+
+    if (remaining <= 0) {
+      complete();
+      return;
+    }
+
+    notifyTick(remaining);
+  }
+
+  /**
+   * Notifie le callback avec l'état actuel
+   */
+  function notifyTick(remaining) {
     if (onTickCallback) {
       onTickCallback({
-        remaining: remainingSeconds,
+        remaining,
         total: totalSeconds,
         paused: isPaused
       });
@@ -68,22 +87,14 @@ const Timer = (() => {
    * Timer terminé - notification + vibration + son
    */
   function complete() {
-    stop();
+    const wasRunning = intervalId !== null || endTime !== null;
+    clearTimer();
+    clearState();
+
+    if (!wasRunning) return;
 
     // Notification
-    if ('Notification' in window && Notification.permission === 'granted') {
-      try {
-        new Notification('Kountz - Pause terminée !', {
-          body: 'C\'est l\'heure de la prochaine série !',
-          icon: 'icons/icon-192.svg',
-          tag: 'kountz-timer',
-          requireInteraction: true
-        });
-      } catch (e) {
-        // Les notifications peuvent échouer en local
-        console.log('Notification non disponible:', e);
-      }
-    }
+    sendNotification();
 
     // Vibration (3 vibrations courtes)
     if ('vibrate' in navigator) {
@@ -99,6 +110,110 @@ const Timer = (() => {
   }
 
   /**
+   * Envoie une notification
+   */
+  function sendNotification() {
+    if ('Notification' in window && Notification.permission === 'granted') {
+      try {
+        new Notification('Kountz - Pause terminée !', {
+          body: 'C\'est l\'heure de la prochaine série !',
+          icon: 'icons/icon-192.svg',
+          tag: 'kountz-timer',
+          requireInteraction: true
+        });
+      } catch (e) {
+        console.log('Notification non disponible:', e);
+      }
+    }
+  }
+
+  /**
+   * Planifie une notification via le Service Worker (pour l'arrière-plan)
+   */
+  function scheduleNotification(delaySeconds) {
+    if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+      navigator.serviceWorker.controller.postMessage({
+        type: 'SCHEDULE_NOTIFICATION',
+        delay: delaySeconds * 1000,
+        title: 'Kountz - Pause terminée !',
+        body: 'C\'est l\'heure de la prochaine série !'
+      });
+    }
+  }
+
+  /**
+   * Annule la notification planifiée dans le Service Worker
+   */
+  function cancelScheduledNotification() {
+    if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+      navigator.serviceWorker.controller.postMessage({
+        type: 'CANCEL_NOTIFICATION'
+      });
+    }
+  }
+
+  /**
+   * Sauvegarde l'état du timer dans localStorage
+   */
+  function saveState() {
+    const state = {
+      endTime,
+      totalSeconds,
+      isPaused,
+      pausedRemaining
+    };
+    localStorage.setItem('kountz_timer', JSON.stringify(state));
+  }
+
+  /**
+   * Supprime l'état sauvegardé
+   */
+  function clearState() {
+    localStorage.removeItem('kountz_timer');
+  }
+
+  /**
+   * Restaure le timer depuis localStorage (appelé au retour sur la page)
+   */
+  function restore(onTick, onComplete) {
+    const saved = localStorage.getItem('kountz_timer');
+    if (!saved) return false;
+
+    try {
+      const state = JSON.parse(saved);
+      endTime = state.endTime;
+      totalSeconds = state.totalSeconds;
+      isPaused = state.isPaused;
+      pausedRemaining = state.pausedRemaining;
+      onTickCallback = onTick;
+      onCompleteCallback = onComplete;
+
+      if (isPaused) {
+        // Timer en pause - affiche l'état figé
+        tick();
+        intervalId = setInterval(tick, 1000);
+        return true;
+      }
+
+      // Vérifie si le timer a expiré pendant l'absence
+      const remaining = Math.ceil((endTime - Date.now()) / 1000);
+      if (remaining <= 0) {
+        // Timer expiré - déclenche la complétion
+        complete();
+        return true;
+      }
+
+      // Timer toujours en cours - reprend le tick
+      tick();
+      intervalId = setInterval(tick, 1000);
+      return true;
+    } catch (e) {
+      clearState();
+      return false;
+    }
+  }
+
+  /**
    * Génère un beep via Web Audio API
    */
   function playBeep() {
@@ -106,12 +221,8 @@ const Timer = (() => {
       if (!audioCtx) {
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       }
-
-      // Premier beep
       beepTone(audioCtx, 880, 0, 0.15);
-      // Deuxième beep
       beepTone(audioCtx, 880, 0.2, 0.15);
-      // Troisième beep (plus haut)
       beepTone(audioCtx, 1100, 0.4, 0.25);
     } catch (e) {
       console.log('Web Audio non disponible:', e);
@@ -144,28 +255,52 @@ const Timer = (() => {
    * Met en pause / reprend le timer
    */
   function togglePause() {
-    isPaused = !isPaused;
+    if (isPaused) {
+      // Reprend - recalcule endTime depuis le temps restant
+      endTime = Date.now() + pausedRemaining * 1000;
+      isPaused = false;
+      scheduleNotification(pausedRemaining);
+    } else {
+      // Pause - capture le temps restant
+      pausedRemaining = Math.max(0, Math.ceil((endTime - Date.now()) / 1000));
+      isPaused = true;
+      cancelScheduledNotification();
+    }
+    saveState();
     tick();
     return isPaused;
   }
 
   /**
-   * Arrête le timer
+   * Nettoie l'interval sans toucher à l'état
    */
-  function stop() {
+  function clearTimer() {
     if (intervalId) {
       clearInterval(intervalId);
       intervalId = null;
     }
-    remainingSeconds = 0;
+    endTime = null;
     isPaused = false;
+    pausedRemaining = 0;
+    cancelScheduledNotification();
   }
 
   /**
-   * Vérifie si le timer est actif
+   * Arrête le timer complètement
+   */
+  function stop() {
+    clearTimer();
+    clearState();
+  }
+
+  /**
+   * Vérifie si le timer est actif (en cours ou en pause)
    */
   function isRunning() {
-    return intervalId !== null;
+    // Vérifie aussi localStorage au cas où le timer tourne en arrière-plan
+    if (intervalId !== null) return true;
+    const saved = localStorage.getItem('kountz_timer');
+    return saved !== null;
   }
 
   /**
@@ -177,10 +312,19 @@ const Timer = (() => {
     return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
   }
 
+  // Écoute le retour au premier plan pour recalculer le timer
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && endTime && !isPaused) {
+      // Page redevient visible - recalcule immédiatement
+      tick();
+    }
+  });
+
   return {
     requestPermission,
     start,
     stop,
+    restore,
     togglePause,
     isRunning,
     formatTime

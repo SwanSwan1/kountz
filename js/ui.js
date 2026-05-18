@@ -395,6 +395,17 @@ const UI = (() => {
     `;
 
     render(html);
+
+    // Restaure le timer s'il tournait en arrière-plan
+    if (Timer.isRunning()) {
+      Timer.restore(
+        (data) => updateTimerDisplay(data),
+        () => {
+          updateTimerDisplay(null);
+          renderSession(objectiveId);
+        }
+      );
+    }
   }
 
   /**

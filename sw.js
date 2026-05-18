@@ -3,7 +3,8 @@
  * Cache les fichiers statiques pour le mode hors-ligne
  */
 
-const CACHE_NAME = 'kountz-v1';
+const CACHE_NAME = 'kountz-v2';
+let notificationTimeout = null;
 const ASSETS = [
   './',
   './index.html',
@@ -43,6 +44,36 @@ self.addEventListener('activate', (event) => {
   );
   // Prend le contrôle immédiatement
   self.clients.claim();
+});
+
+// Messages depuis l'app principale (planification de notifications)
+self.addEventListener('message', (event) => {
+  const data = event.data;
+
+  if (data.type === 'SCHEDULE_NOTIFICATION') {
+    // Annule toute notification précédente
+    if (notificationTimeout) {
+      clearTimeout(notificationTimeout);
+    }
+    // Planifie la notification après le délai
+    notificationTimeout = setTimeout(() => {
+      self.registration.showNotification(data.title, {
+        body: data.body,
+        icon: './icons/icon-192.svg',
+        tag: 'kountz-timer',
+        requireInteraction: true,
+        vibrate: [200, 100, 200, 100, 200]
+      });
+      notificationTimeout = null;
+    }, data.delay);
+  }
+
+  if (data.type === 'CANCEL_NOTIFICATION') {
+    if (notificationTimeout) {
+      clearTimeout(notificationTimeout);
+      notificationTimeout = null;
+    }
+  }
 });
 
 // Fetch : stratégie Cache-First avec fallback réseau

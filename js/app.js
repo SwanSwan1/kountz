@@ -20,6 +20,13 @@ const App = (() => {
     // Demande les permissions de notification
     Timer.requestPermission();
 
+    // Quand la page redevient visible, recalcule le timer et rafraîchit la vue session
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && currentView === 'session' && activeObjectiveId) {
+        UI.renderSession(activeObjectiveId);
+      }
+    });
+
     // Gère le bouton retour du navigateur
     window.addEventListener('popstate', (e) => {
       if (e.state) {
@@ -62,10 +69,7 @@ const App = (() => {
    * Navigation interne
    */
   function navigateInternal(view, param, pushState) {
-    // Arrête le timer si on change de page (sauf si on reste sur la même session)
-    if (view !== 'session' && Timer.isRunning()) {
-      Timer.stop();
-    }
+    // Le timer continue en arrière-plan même si on change de vue
 
     currentView = view;
     currentParam = param;
