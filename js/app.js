@@ -136,6 +136,8 @@ const App = (() => {
       startTime: data.get('startTime'),
       endTime: data.get('endTime') || null,
       distribution: data.get('distribution'),
+      durationDays: data.get('durationDays') ? parseInt(data.get('durationDays')) : null,
+      startDate: data.get('startDate') || Store.today(),
       active: true
     };
 

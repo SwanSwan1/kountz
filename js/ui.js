@@ -50,12 +50,16 @@ const UI = (() => {
         const target = obj.dailyTarget;
         const percent = Math.min(100, Math.round((done / target) * 100));
         const isComplete = session && session.completed;
+        const challenge = Store.getChallengeInfo(obj.id);
 
         html += `
           <div class="card card-objective ${isComplete ? 'card-complete' : ''}"
                onclick="App.navigate('session', '${obj.id}')">
             <div class="card-content">
-              <div class="card-title">${escHtml(obj.name)}</div>
+              <div class="card-title">
+                ${escHtml(obj.name)}
+                ${challenge ? `<span class="badge badge-info">Jour ${challenge.currentDay}/${challenge.totalDays}</span>` : ''}
+              </div>
               <div class="card-progress-text">
                 <span class="progress-value">${done}</span>
                 <span class="progress-sep">/</span>
@@ -66,6 +70,18 @@ const UI = (() => {
                 <div class="progress-fill ${isComplete ? 'fill-success' : ''}"
                      style="width: ${percent}%"></div>
               </div>
+              ${challenge ? `
+                <div class="challenge-mini">
+                  <div class="challenge-mini-text">
+                    <span>${challenge.daysCompleted}j réussis</span>
+                    <span class="text-muted">${challenge.daysMissed > 0 ? challenge.daysMissed + 'j manqués' : ''}</span>
+                    <span>${challenge.daysRemaining}j restants</span>
+                  </div>
+                  <div class="progress-bar progress-bar-sm">
+                    <div class="progress-fill fill-info" style="width: ${Math.round((challenge.currentDay / challenge.totalDays) * 100)}%"></div>
+                  </div>
+                </div>
+              ` : ''}
             </div>
             <div class="card-arrow">
               <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
@@ -132,6 +148,8 @@ const UI = (() => {
     const startTime = obj ? obj.startTime : '';
     const endTime = obj ? (obj.endTime || '') : '';
     const distribution = obj ? obj.distribution : 'degressive';
+    const durationDays = obj ? (obj.durationDays || '') : '';
+    const startDate = obj ? (obj.startDate || '') : Store.today();
 
     let html = `
       <header class="header">
@@ -202,6 +220,24 @@ const UI = (() => {
             </option>
           </select>
         </div>
+
+        <div class="form-divider">
+          <span>Durée du défi</span>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="objDuration">Nombre de jours <span class="text-muted">(optionnel)</span></label>
+            <input type="number" id="objDuration" name="durationDays" value="${durationDays}"
+                   placeholder="Ex: 30" min="1" max="365" class="input">
+          </div>
+          <div class="form-group">
+            <label for="objStartDate">Date de début</label>
+            <input type="date" id="objStartDate" name="startDate" value="${startDate}"
+                   class="input">
+          </div>
+        </div>
+        <p class="text-muted text-sm">Laisse vide pour un objectif permanent sans limite de durée.</p>
 
         <div id="preview" class="preview-box"></div>
 
@@ -306,6 +342,25 @@ const UI = (() => {
         </button>
       </header>
     `;
+
+    // Bandeau défi si applicable
+    const challenge = Store.getChallengeInfo(objectiveId);
+    if (challenge) {
+      html += `
+        <div class="challenge-banner">
+          <div class="challenge-banner-title">Défi : Jour ${challenge.currentDay}/${challenge.totalDays}</div>
+          <div class="challenge-banner-stats">
+            <span class="challenge-stat">${challenge.daysCompleted} <small>réussis</small></span>
+            ${challenge.daysMissed > 0 ? `<span class="challenge-stat text-warning">${challenge.daysMissed} <small>manqués</small></span>` : ''}
+            <span class="challenge-stat">${challenge.daysRemaining} <small>restants</small></span>
+            <span class="challenge-stat">${challenge.completionRate}%</span>
+          </div>
+          <div class="progress-bar progress-bar-sm">
+            <div class="progress-fill fill-info" style="width: ${Math.round((challenge.currentDay / challenge.totalDays) * 100)}%"></div>
+          </div>
+        </div>
+      `;
+    }
 
     // Progression globale
     html += `
@@ -659,6 +714,48 @@ const UI = (() => {
         <div style="width:40px"></div>
       </header>
     `;
+
+    // Bandeau défi si applicable
+    const challengeStats = Store.getChallengeInfo(objectiveId);
+    if (challengeStats) {
+      html += `
+        <div class="challenge-stats-card">
+          <h3>Défi ${challengeStats.totalDays} jours</h3>
+          <div class="challenge-progress-ring">
+            <div class="challenge-day-counter">
+              <span class="challenge-day-big">${challengeStats.currentDay}</span>
+              <span class="challenge-day-sep">/</span>
+              <span class="challenge-day-total">${challengeStats.totalDays}</span>
+            </div>
+          </div>
+          <div class="stats-summary">
+            <div class="stat-card">
+              <div class="stat-value text-success">${challengeStats.daysCompleted}</div>
+              <div class="stat-label">Jours réussis</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value text-warning">${challengeStats.daysMissed}</div>
+              <div class="stat-label">Jours manqués</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value">${challengeStats.daysRemaining}</div>
+              <div class="stat-label">Jours restants</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value">${challengeStats.completionRate}%</div>
+              <div class="stat-label">Taux réussite</div>
+            </div>
+          </div>
+          <div class="progress-bar progress-bar-lg" style="margin-top:0.5rem">
+            <div class="progress-fill fill-info" style="width: ${Math.round((challengeStats.currentDay / challengeStats.totalDays) * 100)}%"></div>
+          </div>
+          <div class="challenge-dates">
+            <span>Début : ${challengeStats.currentDay > 0 ? obj.startDate : '-'}</span>
+            <span>Fin : ${challengeStats.endDate}</span>
+          </div>
+        </div>
+      `;
+    }
 
     // Résumé
     html += `

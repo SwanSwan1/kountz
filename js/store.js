@@ -67,6 +67,83 @@ const Store = (() => {
   }
 
   function getActiveObjectives() {
+    return loadAll().objectives.filter(o => o.active && !isChallengeExpired(o));
+  }
+
+  /**
+   * Vérifie si un défi à durée limitée est terminé (date dépassée)
+   */
+  function isChallengeExpired(obj) {
+    if (!obj.durationDays || !obj.startDate) return false;
+    const end = getChallengeEndDate(obj);
+    return today() > end;
+  }
+
+  /**
+   * Retourne la date de fin d'un défi (YYYY-MM-DD)
+   */
+  function getChallengeEndDate(obj) {
+    if (!obj.durationDays || !obj.startDate) return null;
+    const d = new Date(obj.startDate);
+    d.setDate(d.getDate() + obj.durationDays - 1);
+    return d.toISOString().slice(0, 10);
+  }
+
+  /**
+   * Retourne les infos du défi pour un objectif
+   * { currentDay, totalDays, daysCompleted, daysRemaining, endDate, isActive, completionRate }
+   */
+  function getChallengeInfo(objectiveId) {
+    const obj = getObjective(objectiveId);
+    if (!obj || !obj.durationDays || !obj.startDate) return null;
+
+    const startDate = new Date(obj.startDate);
+    const todayDate = new Date(today());
+    const endDate = getChallengeEndDate(obj);
+
+    // Jour actuel du défi (1-indexed)
+    const diffMs = todayDate - startDate;
+    const currentDay = Math.floor(diffMs / (1000 * 60 * 60 * 24)) + 1;
+
+    // Jours où l'objectif a été atteint
+    const sessions = getSessionsForObjective(objectiveId);
+    const completedSessions = sessions.filter(s => {
+      return s.completed && s.date >= obj.startDate && s.date <= endDate;
+    });
+
+    // Jours manqués (passés sans complétion)
+    const missedDays = [];
+    const d = new Date(obj.startDate);
+    const todayStr = today();
+    while (d.toISOString().slice(0, 10) < todayStr && d.toISOString().slice(0, 10) <= endDate) {
+      const dateStr = d.toISOString().slice(0, 10);
+      const session = sessions.find(s => s.date === dateStr);
+      if (!session || !session.completed) {
+        missedDays.push(dateStr);
+      }
+      d.setDate(d.getDate() + 1);
+    }
+    // Ne pas compter aujourd'hui comme manqué (journée en cours)
+    const missedCount = missedDays.filter(date => date < todayStr).length;
+
+    return {
+      currentDay: Math.min(currentDay, obj.durationDays),
+      totalDays: obj.durationDays,
+      daysCompleted: completedSessions.length,
+      daysMissed: missedCount,
+      daysRemaining: Math.max(0, obj.durationDays - currentDay),
+      endDate,
+      isActive: currentDay >= 1 && currentDay <= obj.durationDays,
+      completionRate: currentDay > 0
+        ? Math.round((completedSessions.length / Math.min(currentDay, obj.durationDays)) * 100)
+        : 0
+    };
+  }
+
+  /**
+   * Retourne tous les objectifs (actifs + défis terminés) pour les stats
+   */
+  function getAllObjectivesIncludingExpired() {
     return loadAll().objectives.filter(o => o.active);
   }
 
@@ -290,6 +367,9 @@ const Store = (() => {
     today,
     getObjectives,
     getActiveObjectives,
+    isChallengeExpired,
+    getChallengeEndDate,
+    getChallengeInfo,
     getObjective,
     saveObjective,
     deleteObjective,

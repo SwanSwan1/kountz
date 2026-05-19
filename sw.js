@@ -3,7 +3,7 @@
  * Cache les fichiers statiques pour le mode hors-ligne
  */
 
-const CACHE_NAME = 'kountz-v2';
+const CACHE_NAME = 'kountz-v3';
 let notificationTimeout = null;
 const ASSETS = [
   './',
