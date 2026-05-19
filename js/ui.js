@@ -35,7 +35,7 @@ const UI = (() => {
     html += `<section class="section">
       <div class="section-header">
         <h2>Objectifs du jour</h2>
-        <button class="btn btn-sm btn-primary" onclick="App.navigate('newObjective')">+ Nouveau</button>
+        <button class="btn btn-sm btn-primary" onclick="App.navigate('presets')">+ Nouveau</button>
       </div>`;
 
     if (objectives.length === 0) {
@@ -46,11 +46,27 @@ const UI = (() => {
     } else {
       objectives.forEach(obj => {
         const session = Store.getTodaySession(obj.id);
-        const done = session ? session.totalDone : 0;
-        const target = obj.dailyTarget;
-        const percent = Math.min(100, Math.round((done / target) * 100));
         const isComplete = session && session.completed;
         const challenge = Store.getChallengeInfo(obj.id);
+        const isTimed = obj.type === 'timed';
+
+        // Calcul de la progression selon le type
+        let progressText, percent;
+        if (isTimed) {
+          const setsTotal = obj.setsPerDay || 3;
+          const setsDone = session ? session.sets.filter(s => s.actual !== null).length : 0;
+          percent = Math.min(100, Math.round((setsDone / setsTotal) * 100));
+          progressText = `<span class="progress-value">Séries : ${setsDone}</span>
+            <span class="progress-sep">/</span>
+            <span class="progress-target">${setsTotal} aujourd'hui</span>`;
+        } else {
+          const done = session ? session.totalDone : 0;
+          const target = obj.dailyTarget;
+          percent = Math.min(100, Math.round((done / target) * 100));
+          progressText = `<span class="progress-value">${done}</span>
+            <span class="progress-sep">/</span>
+            <span class="progress-target">${target}</span>`;
+        }
 
         html += `
           <div class="card card-objective ${isComplete ? 'card-complete' : ''}"
@@ -61,9 +77,7 @@ const UI = (() => {
                 ${challenge ? `<span class="badge badge-info">Jour ${challenge.currentDay}/${challenge.totalDays}</span>` : ''}
               </div>
               <div class="card-progress-text">
-                <span class="progress-value">${done}</span>
-                <span class="progress-sep">/</span>
-                <span class="progress-target">${target}</span>
+                ${progressText}
                 ${isComplete ? '<span class="badge badge-success">Terminé !</span>' : ''}
               </div>
               <div class="progress-bar">
@@ -318,6 +332,12 @@ const UI = (() => {
     const obj = Store.getObjective(objectiveId);
     if (!obj) {
       renderHome();
+      return;
+    }
+
+    // Route vers l'écran minuté si type timed
+    if (obj.type === 'timed') {
+      renderTimedSession(objectiveId);
       return;
     }
 
@@ -786,10 +806,11 @@ const UI = (() => {
         <div class="bar-chart">
     `;
 
-    const maxVal = Math.max(...barData.map(d => d.done), obj.dailyTarget, 1);
+    const chartTarget = obj.type === 'timed' ? (obj.setsPerDay || 3) : obj.dailyTarget;
+    const maxVal = Math.max(...barData.map(d => d.done), chartTarget, 1);
     barData.forEach(d => {
       const h = Math.max(4, Math.round((d.done / maxVal) * 120));
-      const targetH = Math.round((obj.dailyTarget / maxVal) * 120);
+      const targetH = Math.round((chartTarget / maxVal) * 120);
       const barClass = d.completed ? 'bar-success' : d.done > 0 ? 'bar-partial' : 'bar-none';
       html += `
         <div class="bar-col">
@@ -894,6 +915,437 @@ const UI = (() => {
   }
 
   /**
+   * Écran de sélection de preset / type d'objectif
+   */
+  function renderPresetSelection() {
+    const presets = Store.getPresets();
+
+    let html = `
+      <header class="header">
+        <button class="btn-icon" onclick="App.navigate('home')" aria-label="Retour">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M15 18l-6-6 6-6"/>
+          </svg>
+        </button>
+        <h1>Choisir un type</h1>
+        <div style="width:40px"></div>
+      </header>
+    `;
+
+    // Section presets
+    html += `<section class="section">
+      <h2 style="margin-bottom:12px">Presets</h2>`;
+
+    presets.forEach(preset => {
+      html += `
+        <div class="card preset-card">
+          <div class="card-content">
+            <div class="card-title">
+              <span class="preset-icon">${preset.icon}</span>
+              ${escHtml(preset.name)}
+            </div>
+            <p class="text-muted text-sm" style="margin:6px 0">${escHtml(preset.description)}</p>
+            <button class="btn btn-sm btn-primary" onclick="App.createFromPreset('${preset.id}')">Créer</button>
+          </div>
+        </div>`;
+    });
+
+    html += `</section>`;
+
+    // Section personnalisé
+    html += `<section class="section">
+      <h2 style="margin-bottom:12px">Personnalisé</h2>
+      <div style="display:flex;gap:12px">
+        <button class="btn btn-outline" style="flex:1" onclick="App.navigate('newObjective')">
+          Objectif comptage
+        </button>
+        <button class="btn btn-outline" style="flex:1" onclick="App.navigate('newTimedObjective')">
+          Exercice minuté
+        </button>
+      </div>
+    </section>`;
+
+    render(html);
+  }
+
+  /**
+   * Formulaire de création d'un exercice minuté
+   */
+  function renderTimedObjectiveForm(presetId) {
+    const preset = presetId ? Store.getPreset(presetId) : null;
+
+    const name = preset ? preset.name : '';
+    const holdSeconds = preset ? preset.holdSeconds : 3;
+    const releaseSeconds = preset ? preset.releaseSeconds : 5;
+    const repsPerSet = preset ? preset.repsPerSet : 10;
+    const setsPerDay = preset ? preset.setsPerDay : 3;
+    const restMinutes = preset ? preset.restMinutes : 60;
+    const durationDays = preset ? preset.durationDays : '';
+    const startDate = Store.today();
+
+    let html = `
+      <header class="header">
+        <button class="btn-icon" onclick="App.navigate('presets')" aria-label="Retour">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M15 18l-6-6 6-6"/>
+          </svg>
+        </button>
+        <h1>Exercice minuté</h1>
+        <div style="width:40px"></div>
+      </header>
+
+      <form id="timedObjectiveForm" class="form" onsubmit="App.saveTimedObjective(event)">
+        ${presetId ? `<input type="hidden" name="presetId" value="${presetId}">` : ''}
+
+        <div class="form-group">
+          <label for="timedName">Nom de l'exercice</label>
+          <input type="text" id="timedName" name="name" value="${escHtml(name)}"
+                 placeholder="Ex: Périnée" required class="input">
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="timedHold">Contraction (sec)</label>
+            <input type="number" id="timedHold" name="holdSeconds" value="${holdSeconds}"
+                   min="1" max="60" required class="input">
+          </div>
+          <div class="form-group">
+            <label for="timedRelease">Relâchement (sec)</label>
+            <input type="number" id="timedRelease" name="releaseSeconds" value="${releaseSeconds}"
+                   min="1" max="60" required class="input">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="timedReps">Répétitions/série</label>
+            <input type="number" id="timedReps" name="repsPerSet" value="${repsPerSet}"
+                   min="1" max="100" required class="input">
+          </div>
+          <div class="form-group">
+            <label for="timedSets">Séries/jour</label>
+            <input type="number" id="timedSets" name="setsPerDay" value="${setsPerDay}"
+                   min="1" max="20" required class="input">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="timedRest">Pause entre séries (min)</label>
+          <input type="number" id="timedRest" name="restMinutes" value="${restMinutes}"
+                 min="1" max="480" required class="input">
+        </div>
+
+        <div class="form-divider">
+          <span>Durée du défi</span>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="timedDuration">Nombre de jours <span class="text-muted">(optionnel)</span></label>
+            <input type="number" id="timedDuration" name="durationDays" value="${durationDays}"
+                   placeholder="Ex: 90" min="1" max="365" class="input">
+          </div>
+          <div class="form-group">
+            <label for="timedStartDate">Date de début</label>
+            <input type="date" id="timedStartDate" name="startDate" value="${startDate}"
+                   class="input">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="timedStartTime">Heure de début <span class="text-muted">(optionnel)</span></label>
+            <input type="time" id="timedStartTime" name="startTime" value=""
+                   class="input">
+          </div>
+          <div class="form-group">
+            <label for="timedEndTime">Heure de fin <span class="text-muted">(optionnel)</span></label>
+            <input type="time" id="timedEndTime" name="endTime" value=""
+                   class="input">
+          </div>
+        </div>
+        <p class="text-muted text-sm">Laisse vide pour un objectif permanent sans limite de durée.</p>
+    `;
+
+    // Affiche les conseils du preset si disponible
+    if (preset && preset.tips && preset.tips.length > 0) {
+      html += `
+        <div class="tips-box" style="margin-top:16px">
+          <h3 style="font-size:0.9rem;color:var(--primary-light);margin-bottom:8px">Conseils</h3>
+          <ul style="list-style:none;padding:0">
+      `;
+      preset.tips.forEach(tip => {
+        html += `<li style="font-size:0.85rem;color:var(--text-muted);padding:4px 0">• ${escHtml(tip)}</li>`;
+      });
+      html += `</ul></div>`;
+    }
+
+    html += `
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary btn-block">
+            Créer l'exercice
+          </button>
+        </div>
+      </form>
+    `;
+
+    render(html);
+  }
+
+  /**
+   * Écran de session d'exercice minuté (guidé)
+   */
+  function renderTimedSession(objectiveId) {
+    const obj = Store.getObjective(objectiveId);
+    if (!obj) {
+      renderHome();
+      return;
+    }
+
+    const session = Objectives.getOrCreateTodaySession(objectiveId);
+    const params = Objectives.getTimedParams(obj);
+    const nextIdx = Objectives.getNextSetIndex(session);
+    const allDone = nextIdx === -1;
+    const setsDone = session.sets.filter(s => s.actual !== null).length;
+    const setsTotal = session.sets.length;
+    const percent = Math.min(100, Math.round((setsDone / setsTotal) * 100));
+
+    let html = `
+      <header class="header">
+        <button class="btn-icon" onclick="App.navigate('home')" aria-label="Retour">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M15 18l-6-6 6-6"/>
+          </svg>
+        </button>
+        <h1>${escHtml(obj.name)}</h1>
+        <button class="btn-icon" onclick="App.navigate('editObjective', '${obj.id}')" aria-label="Modifier">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M17 3a2.83 2.83 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>
+          </svg>
+        </button>
+      </header>
+    `;
+
+    // Bandeau défi si applicable
+    const challenge = Store.getChallengeInfo(objectiveId);
+    if (challenge) {
+      html += `
+        <div class="challenge-banner">
+          <div class="challenge-banner-title">Défi : Jour ${challenge.currentDay}/${challenge.totalDays}</div>
+          <div class="challenge-banner-stats">
+            <span class="challenge-stat">${challenge.daysCompleted} <small>réussis</small></span>
+            ${challenge.daysMissed > 0 ? `<span class="challenge-stat text-warning">${challenge.daysMissed} <small>manqués</small></span>` : ''}
+            <span class="challenge-stat">${challenge.daysRemaining} <small>restants</small></span>
+            <span class="challenge-stat">${challenge.completionRate}%</span>
+          </div>
+          <div class="progress-bar progress-bar-sm">
+            <div class="progress-fill fill-info" style="width: ${Math.round((challenge.currentDay / challenge.totalDays) * 100)}%"></div>
+          </div>
+        </div>
+      `;
+    }
+
+    // Note de progression si applicable
+    if (params.progressionNote) {
+      html += `
+        <div class="alert alert-warning" style="margin-bottom:16px">
+          Progression : ${escHtml(params.progressionNote)}
+        </div>
+      `;
+    }
+
+    // Progression globale (séries)
+    html += `
+      <div class="session-progress">
+        <div class="session-progress-text">
+          <span class="big-number">${setsDone}</span>
+          <span class="big-sep">/</span>
+          <span class="big-target">${setsTotal} séries</span>
+        </div>
+        <div class="progress-bar progress-bar-lg">
+          <div class="progress-fill ${session.completed ? 'fill-success' : ''}"
+               style="width: ${percent}%"></div>
+        </div>
+        <div class="session-percent">${percent}%</div>
+      </div>
+    `;
+
+    // Zone timer (pour pause entre séries)
+    html += `<div id="timerZone" class="timer-zone"></div>`;
+
+    // Zone de l'exercice minuté
+    html += `<div id="timedExerciseZone">`;
+
+    if (allDone || session.completed) {
+      html += `
+        <div class="session-complete">
+          <div class="complete-icon">&#10003;</div>
+          <h2>Objectif du jour terminé !</h2>
+          <p>${setsDone} séries de ${escHtml(obj.name).toLowerCase()} aujourd'hui</p>
+        </div>
+      `;
+    } else {
+      // Série en cours - affiche l'écran d'exercice
+      html += `
+        <div class="timed-exercise-card">
+          <div class="set-info">Série ${nextIdx + 1}/${setsTotal}</div>
+          <div class="timed-rep-info" id="timedRepInfo">Répétition 0/${params.repsPerSet}</div>
+
+          <div class="timed-circle-container" id="timedCircle">
+            <div class="timer-circle timed-circle">
+              <svg viewBox="0 0 100 100" class="timer-svg">
+                <circle cx="50" cy="50" r="45" class="timer-bg"/>
+                <circle cx="50" cy="50" r="45" class="timer-progress timed-progress-ring" id="timedProgressRing"
+                        style="stroke-dashoffset: 283"/>
+              </svg>
+              <div class="timed-circle-text" id="timedCircleText">
+                <div class="timed-phase" id="timedPhase">PRÊT</div>
+                <div class="timed-countdown" id="timedCountdown">--</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="timed-set-progress">
+            <div class="progress-bar">
+              <div class="progress-fill" id="timedSetProgress" style="width:0%"></div>
+            </div>
+          </div>
+
+          <div class="timed-actions" id="timedActions">
+            <button class="btn btn-lg btn-success btn-block" id="timedStartBtn"
+                    onclick="App.startTimedSet('${objectiveId}')">
+              Démarrer la série
+            </button>
+            <div id="timedRunningActions" style="display:none">
+              <div style="display:flex;gap:12px;justify-content:center">
+                <button class="btn btn-warning" onclick="App.pauseTimedExercise()">Pause</button>
+                <button class="btn btn-danger-light" onclick="App.skipTimedSet()">Passer cette série</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    html += `</div>`;
+
+    // Historique des séries faites
+    const completedSets = session.sets.filter(s => s.actual !== null);
+    if (completedSets.length > 0) {
+      html += `
+        <div class="session-history">
+          <h3>Séries complétées</h3>
+          <div class="sets-list">
+      `;
+      session.sets.forEach((s, i) => {
+        if (s.actual !== null) {
+          html += `
+            <div class="set-done">
+              <span class="set-done-num">S${i + 1}</span>
+              <span class="set-done-val">${s.actual} reps</span>
+              <span class="set-done-time">${s.completedAt}</span>
+            </div>
+          `;
+        }
+      });
+      html += `</div></div>`;
+    }
+
+    // Conseils (section repliable)
+    if (obj.tips && obj.tips.length > 0) {
+      html += `
+        <details class="tips-details" style="margin-top:16px">
+          <summary class="tips-summary">Conseils</summary>
+          <ul class="tips-list">
+      `;
+      obj.tips.forEach(tip => {
+        html += `<li>${escHtml(tip)}</li>`;
+      });
+      html += `</ul></details>`;
+    }
+
+    // Bouton stats
+    html += `
+      <div class="section" style="margin-top:1rem">
+        <button class="btn btn-block btn-outline" onclick="App.navigate('statsObjective', '${obj.id}')">
+          Voir les statistiques
+        </button>
+      </div>
+    `;
+
+    render(html);
+
+    // Restaure le timer de pause s'il tournait en arrière-plan
+    if (Timer.isRunning()) {
+      Timer.restore(
+        (data) => updateTimerDisplay(data),
+        () => {
+          updateTimerDisplay(null);
+          renderTimedSession(objectiveId);
+        }
+      );
+    }
+  }
+
+  /**
+   * Met à jour l'affichage de l'exercice minuté sans re-render complet
+   * Appelé par le tick de l'exercice depuis app.js
+   */
+  function updateTimedExerciseDisplay(state) {
+    const phaseEl = document.getElementById('timedPhase');
+    const countdownEl = document.getElementById('timedCountdown');
+    const ringEl = document.getElementById('timedProgressRing');
+    const repInfoEl = document.getElementById('timedRepInfo');
+    const setProgressEl = document.getElementById('timedSetProgress');
+    const circleContainer = document.getElementById('timedCircle');
+
+    if (!phaseEl || !countdownEl) return;
+
+    // Met à jour le texte de phase
+    if (state.phase === 'hold') {
+      phaseEl.textContent = 'CONTRACTEZ';
+      phaseEl.className = 'timed-phase timed-phase-hold';
+      if (circleContainer) circleContainer.className = 'timed-circle-container timed-hold';
+    } else if (state.phase === 'release') {
+      phaseEl.textContent = 'RELÂCHEZ';
+      phaseEl.className = 'timed-phase timed-phase-release';
+      if (circleContainer) circleContainer.className = 'timed-circle-container timed-release';
+    } else if (state.phase === 'done') {
+      phaseEl.textContent = 'TERMINÉ';
+      phaseEl.className = 'timed-phase timed-phase-done';
+      countdownEl.textContent = '';
+      if (circleContainer) circleContainer.className = 'timed-circle-container timed-done';
+      return;
+    }
+
+    // Countdown avec décimale
+    const displaySeconds = Math.ceil(state.countdown / 10) / 10;
+    countdownEl.textContent = (state.countdown / 10).toFixed(1) + 's';
+
+    // Anneau de progression pour la phase en cours
+    const phaseDuration = state.phase === 'hold' ? state.holdTotal : state.releaseTotal;
+    const phaseProgress = phaseDuration > 0 ? (1 - state.countdown / phaseDuration) : 0;
+    if (ringEl) {
+      const offset = 283 - (283 * phaseProgress);
+      ringEl.style.strokeDashoffset = offset;
+      ringEl.style.transition = 'none';
+    }
+
+    // Répétition en cours
+    if (repInfoEl) {
+      repInfoEl.textContent = `Répétition ${state.rep + 1}/${state.totalReps}`;
+    }
+
+    // Barre de progression de la série
+    if (setProgressEl) {
+      const totalPhases = state.totalReps * 2; // hold + release pour chaque rep
+      const donePhases = state.rep * 2 + (state.phase === 'release' ? 1 : 0);
+      const setPercent = Math.round((donePhases / totalPhases) * 100);
+      setProgressEl.style.width = setPercent + '%';
+    }
+  }
+
+  /**
    * Échappe le HTML pour éviter les injections
    */
   function escHtml(str) {
@@ -909,6 +1361,10 @@ const UI = (() => {
     updatePreview,
     renderSession,
     updateTimerDisplay,
+    renderPresetSelection,
+    renderTimedObjectiveForm,
+    renderTimedSession,
+    updateTimedExerciseDisplay,
     renderCounterForm,
     renderCounterView,
     renderStatsOverview,

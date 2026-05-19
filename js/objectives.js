@@ -213,15 +213,99 @@ const Objectives = (() => {
   }
 
   /**
-   * Crée ou récupère la session du jour pour un objectif
+   * Calcule les paramètres d'exercice minuté en tenant compte de la progression
+   * @param {object} obj - L'objectif avec progression rules
+   * @returns {object} { holdSeconds, releaseSeconds, repsPerSet, setsPerDay, progressionNote }
    */
-  function getOrCreateTodaySession(objectiveId) {
+  function getTimedParams(obj) {
+    // Paramètres de base depuis l'objectif
+    let holdSeconds = obj.holdSeconds || 3;
+    let releaseSeconds = obj.releaseSeconds || 5;
+    let repsPerSet = obj.repsPerSet || 10;
+    let setsPerDay = obj.setsPerDay || 3;
+    let progressionNote = null;
+
+    // Applique les règles de progression si disponibles
+    if (obj.progressionRules && obj.progressionRules.length > 0 && obj.startDate) {
+      const startDate = new Date(obj.startDate);
+      const todayDate = new Date(Store.today());
+      const daysSinceStart = Math.floor((todayDate - startDate) / (1000 * 60 * 60 * 24));
+
+      // Trouve la règle la plus avancée applicable
+      const sortedRules = [...obj.progressionRules].sort((a, b) => b.afterDays - a.afterDays);
+      for (const rule of sortedRules) {
+        if (daysSinceStart >= rule.afterDays) {
+          // Applique les surcharges de cette règle
+          if (rule.holdSeconds !== undefined) holdSeconds = rule.holdSeconds;
+          if (rule.releaseSeconds !== undefined) releaseSeconds = rule.releaseSeconds;
+          if (rule.repsPerSet !== undefined) repsPerSet = rule.repsPerSet;
+          if (rule.setsPerDay !== undefined) setsPerDay = rule.setsPerDay;
+          progressionNote = rule.note || null;
+          break;
+        }
+      }
+    }
+
+    return { holdSeconds, releaseSeconds, repsPerSet, setsPerDay, progressionNote };
+  }
+
+  /**
+   * Crée ou récupère la session du jour pour un exercice minuté
+   */
+  function getOrCreateTimedSession(objectiveId) {
     let session = Store.getTodaySession(objectiveId);
     if (session) return session;
 
     const obj = Store.getObjective(objectiveId);
     if (!obj) return null;
 
+    const params = getTimedParams(obj);
+
+    // Crée les séries pour la journée
+    const sets = [];
+    for (let i = 0; i < params.setsPerDay; i++) {
+      sets.push({
+        planned: params.repsPerSet,
+        actual: null,
+        completedAt: null
+      });
+    }
+
+    session = {
+      objectiveId,
+      date: Store.today(),
+      type: 'timed',
+      sets,
+      totalDone: 0,
+      completed: false,
+      timedParams: {
+        holdSeconds: params.holdSeconds,
+        releaseSeconds: params.releaseSeconds,
+        repsPerSet: params.repsPerSet
+      }
+    };
+
+    return Store.saveSession(session);
+  }
+
+  /**
+   * Crée ou récupère la session du jour pour un objectif
+   * Route vers la version minutée si le type est 'timed'
+   */
+  function getOrCreateTodaySession(objectiveId) {
+    // Vérifie d'abord si une session existe déjà
+    let session = Store.getTodaySession(objectiveId);
+    if (session) return session;
+
+    const obj = Store.getObjective(objectiveId);
+    if (!obj) return null;
+
+    // Route vers la bonne logique selon le type
+    if (obj.type === 'timed') {
+      return getOrCreateTimedSession(objectiveId);
+    }
+
+    // Type "count" par défaut (comportement existant)
     const distribution = calculateDistribution(
       obj.dailyTarget, obj.maxPerSet, obj.distribution
     );
@@ -269,7 +353,13 @@ const Objectives = (() => {
     // Vérifie si terminé
     const obj = Store.getObjective(session.objectiveId);
     const allDone = session.sets.every(s => s.actual !== null);
-    session.completed = allDone || (obj && session.totalDone >= obj.dailyTarget);
+    if (obj && obj.type === 'timed') {
+      // Pour les exercices minutés, terminé quand toutes les séries sont faites
+      session.completed = allDone;
+    } else {
+      // Pour les objectifs de comptage, terminé quand tout fait ou objectif atteint
+      session.completed = allDone || (obj && session.totalDone >= obj.dailyTarget);
+    }
 
     return Store.saveSession(session);
   }
@@ -298,7 +388,9 @@ const Objectives = (() => {
     calculateDistribution,
     calculateSchedule,
     checkTimeRange,
+    getTimedParams,
     getOrCreateTodaySession,
+    getOrCreateTimedSession,
     completeSet,
     getNextSetIndex,
     getDistributionLabel

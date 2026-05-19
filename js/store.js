@@ -362,6 +362,71 @@ const Store = (() => {
     }
   }
 
+  // --- Presets d'exercices minutés ---
+
+  const PRESETS = [
+    {
+      id: 'perinee-base',
+      name: 'Périnée - Exercice de base',
+      description: 'Contraction 3-5s, relâchement 5s, 10 répétitions × 3 séries/jour',
+      icon: '🎯',
+      type: 'timed',
+      holdSeconds: 3,
+      releaseSeconds: 5,
+      repsPerSet: 10,
+      setsPerDay: 3,
+      restMinutes: 60,
+      durationDays: 90,
+      progressionRules: [
+        { afterDays: 14, holdSeconds: 5, note: 'Maintien augmenté à 5 secondes' },
+        { afterDays: 28, holdSeconds: 7, note: 'Maintien augmenté à 7 secondes' },
+        { afterDays: 42, holdSeconds: 10, note: 'Maintien augmenté à 10 secondes, essayez debout' }
+      ],
+      tips: [
+        'Ne bloquez pas la respiration',
+        'Ne contractez pas les fessiers ou les abdos',
+        'Ressentez une légère remontée à la base',
+        'Ne poussez pas vers le bas'
+      ]
+    },
+    {
+      id: 'perinee-rapide',
+      name: 'Périnée - Variante rapide',
+      description: 'Contractions courtes 1s/1s, 20 répétitions × 3 séries/jour',
+      icon: '⚡',
+      type: 'timed',
+      holdSeconds: 1,
+      releaseSeconds: 1,
+      repsPerSet: 20,
+      setsPerDay: 3,
+      restMinutes: 60,
+      durationDays: 90,
+      progressionRules: [
+        { afterDays: 28, repsPerSet: 25, note: 'Augmenté à 25 répétitions' },
+        { afterDays: 56, repsPerSet: 30, note: 'Augmenté à 30 répétitions' }
+      ],
+      tips: [
+        'Idéal au bureau, très discret',
+        'Contractions rapides et nettes',
+        'Relâchez complètement entre chaque'
+      ]
+    }
+  ];
+
+  /**
+   * Retourne la liste des presets disponibles
+   */
+  function getPresets() {
+    return PRESETS;
+  }
+
+  /**
+   * Retourne un preset par son ID
+   */
+  function getPreset(presetId) {
+    return PRESETS.find(p => p.id === presetId) || null;
+  }
+
   return {
     generateId,
     today,
@@ -389,6 +454,9 @@ const Store = (() => {
     saveCounterEntry,
     incrementCounter,
     exportData,
-    importData
+    importData,
+    PRESETS,
+    getPresets,
+    getPreset
   };
 })();

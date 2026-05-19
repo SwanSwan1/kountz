@@ -10,6 +10,10 @@ const App = (() => {
   let activeSessionId = null;
   let activeObjectiveId = null;
 
+  // État de l'exercice minuté en cours
+  let timedState = null;  // { phase, rep, setIndex, countdown, holdTotal, releaseTotal, totalReps, intervalId }
+  let timedObjectiveId = null;
+
   /**
    * Initialise l'application
    */
@@ -23,6 +27,8 @@ const App = (() => {
     // Quand la page redevient visible, recalcule le timer et rafraîchit la vue session
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible' && currentView === 'session' && activeObjectiveId) {
+        // Si un exercice minuté est en cours, ne pas re-render (le tick continue)
+        if (timedState && timedState.intervalId && !timedState.paused) return;
         UI.renderSession(activeObjectiveId);
       }
     });
@@ -69,7 +75,12 @@ const App = (() => {
    * Navigation interne
    */
   function navigateInternal(view, param, pushState) {
-    // Le timer continue en arrière-plan même si on change de vue
+    // Le timer de pause continue en arrière-plan même si on change de vue
+    // Mais on arrête l'exercice minuté si on quitte la session
+    if (timedState && timedState.intervalId && (view !== 'session' || param !== timedObjectiveId)) {
+      clearInterval(timedState.intervalId);
+      timedState = null;
+    }
 
     currentView = view;
     currentParam = param;
@@ -106,6 +117,12 @@ const App = (() => {
         break;
       case 'statsObjective':
         UI.renderStatsObjective(param);
+        break;
+      case 'presets':
+        UI.renderPresetSelection();
+        break;
+      case 'newTimedObjective':
+        UI.renderTimedObjectiveForm(param);
         break;
       case 'settings':
         UI.renderSettings();
@@ -262,6 +279,234 @@ const App = (() => {
     UI.updateTimerDisplay(null);
   }
 
+  // --- Actions exercice minuté ---
+
+  /**
+   * Crée un objectif depuis un preset
+   */
+  function createFromPreset(presetId) {
+    const preset = Store.getPreset(presetId);
+    if (!preset) return;
+
+    const obj = {
+      name: preset.name,
+      type: 'timed',
+      holdSeconds: preset.holdSeconds,
+      releaseSeconds: preset.releaseSeconds,
+      repsPerSet: preset.repsPerSet,
+      setsPerDay: preset.setsPerDay,
+      restMinutes: preset.restMinutes,
+      durationDays: preset.durationDays || null,
+      startDate: Store.today(),
+      progressionRules: preset.progressionRules || [],
+      tips: preset.tips || [],
+      active: true
+    };
+
+    Store.saveObjective(obj);
+    navigate('home');
+  }
+
+  /**
+   * Sauvegarde un exercice minuté depuis le formulaire
+   */
+  function saveTimedObjective(event) {
+    event.preventDefault();
+    const form = event.target;
+    const data = new FormData(form);
+
+    const presetId = data.get('presetId');
+    const preset = presetId ? Store.getPreset(presetId) : null;
+
+    const obj = {
+      name: data.get('name').trim(),
+      type: 'timed',
+      holdSeconds: parseInt(data.get('holdSeconds')),
+      releaseSeconds: parseInt(data.get('releaseSeconds')),
+      repsPerSet: parseInt(data.get('repsPerSet')),
+      setsPerDay: parseInt(data.get('setsPerDay')),
+      restMinutes: parseInt(data.get('restMinutes')),
+      durationDays: data.get('durationDays') ? parseInt(data.get('durationDays')) : null,
+      startDate: data.get('startDate') || Store.today(),
+      startTime: data.get('startTime') || null,
+      endTime: data.get('endTime') || null,
+      progressionRules: preset ? preset.progressionRules || [] : [],
+      tips: preset ? preset.tips || [] : [],
+      active: true
+    };
+
+    // Validation
+    if (!obj.name || !obj.holdSeconds || !obj.releaseSeconds || !obj.repsPerSet || !obj.setsPerDay) {
+      alert('Remplis tous les champs obligatoires');
+      return;
+    }
+
+    Store.saveObjective(obj);
+    navigate('home');
+  }
+
+  /**
+   * Démarre une série d'exercice minuté
+   */
+  function startTimedSet(objectiveId) {
+    const obj = Store.getObjective(objectiveId);
+    if (!obj) return;
+
+    const session = Store.getTodaySession(objectiveId);
+    if (!session) return;
+
+    const nextIdx = Objectives.getNextSetIndex(session);
+    if (nextIdx === -1) return;
+
+    const params = Objectives.getTimedParams(obj);
+    timedObjectiveId = objectiveId;
+
+    // Initialise l'état de la machine
+    timedState = {
+      phase: 'hold',
+      rep: 0,
+      setIndex: nextIdx,
+      countdown: params.holdSeconds * 10, // en dixièmes de seconde
+      holdTotal: params.holdSeconds * 10,
+      releaseTotal: params.releaseSeconds * 10,
+      totalReps: params.repsPerSet,
+      paused: false,
+      intervalId: null
+    };
+
+    // Masque le bouton démarrer, affiche les boutons de contrôle
+    const startBtn = document.getElementById('timedStartBtn');
+    const runningActions = document.getElementById('timedRunningActions');
+    if (startBtn) startBtn.style.display = 'none';
+    if (runningActions) runningActions.style.display = 'block';
+
+    // Premier affichage immédiat
+    UI.updateTimedExerciseDisplay(timedState);
+
+    // Démarre le tick à 100ms
+    timedState.intervalId = setInterval(() => timedTick(), 100);
+  }
+
+  /**
+   * Tick de l'exercice minuté (appelé toutes les 100ms)
+   */
+  function timedTick() {
+    if (!timedState || timedState.paused) return;
+
+    timedState.countdown--;
+
+    if (timedState.countdown <= 0) {
+      if (timedState.phase === 'hold') {
+        // Passe au relâchement
+        timedState.phase = 'release';
+        timedState.countdown = timedState.releaseTotal;
+      } else if (timedState.phase === 'release') {
+        // Fin d'une répétition
+        timedState.rep++;
+        if (timedState.rep >= timedState.totalReps) {
+          // Série terminée
+          timedState.phase = 'done';
+          completeTimedSet(timedObjectiveId);
+          return;
+        }
+        // Prochaine répétition
+        timedState.phase = 'hold';
+        timedState.countdown = timedState.holdTotal;
+      }
+    }
+
+    UI.updateTimedExerciseDisplay(timedState);
+  }
+
+  /**
+   * Met en pause / reprend l'exercice minuté
+   */
+  function pauseTimedExercise() {
+    if (!timedState) return;
+
+    timedState.paused = !timedState.paused;
+
+    // Met à jour le bouton pause
+    const phaseEl = document.getElementById('timedPhase');
+    if (timedState.paused && phaseEl) {
+      phaseEl.textContent = 'EN PAUSE';
+    } else {
+      // Reprend - le prochain tick mettra à jour l'affichage
+    }
+  }
+
+  /**
+   * Passe la série en cours (sans la compléter normalement)
+   */
+  function skipTimedSet() {
+    if (timedState && timedState.intervalId) {
+      clearInterval(timedState.intervalId);
+    }
+
+    if (timedObjectiveId) {
+      // Marque la série comme faite avec 0 reps
+      const session = Store.getTodaySession(timedObjectiveId);
+      if (session) {
+        const nextIdx = Objectives.getNextSetIndex(session);
+        if (nextIdx !== -1) {
+          Objectives.completeSet(session.id, nextIdx, 0);
+        }
+      }
+    }
+
+    timedState = null;
+    if (timedObjectiveId) {
+      UI.renderTimedSession(timedObjectiveId);
+    }
+  }
+
+  /**
+   * Termine la série minutée en cours et lance le timer de pause
+   */
+  function completeTimedSet(objectiveId) {
+    // Arrête le tick
+    if (timedState && timedState.intervalId) {
+      clearInterval(timedState.intervalId);
+    }
+
+    const session = Store.getTodaySession(objectiveId);
+    if (!session) return;
+
+    const setIndex = timedState ? timedState.setIndex : Objectives.getNextSetIndex(session);
+    const reps = timedState ? timedState.rep : 0;
+
+    // Valide la série avec le nombre de reps effectuées
+    Objectives.completeSet(session.id, setIndex, reps);
+
+    // Vibration de confirmation
+    if ('vibrate' in navigator) {
+      navigator.vibrate([100, 50, 100]);
+    }
+
+    // Lance le timer de pause si pas la dernière série
+    const obj = Store.getObjective(objectiveId);
+    const updatedSession = Store.getTodaySession(objectiveId);
+    const newNextIdx = Objectives.getNextSetIndex(updatedSession);
+
+    if (newNextIdx !== -1 && obj) {
+      Timer.start(
+        obj.restMinutes,
+        (data) => UI.updateTimerDisplay(data),
+        () => {
+          UI.updateTimerDisplay(null);
+          if (currentView === 'session' && currentParam === objectiveId) {
+            UI.renderTimedSession(objectiveId);
+          }
+        }
+      );
+    }
+
+    timedState = null;
+
+    // Re-render
+    UI.renderTimedSession(objectiveId);
+  }
+
   // --- Actions compteurs ---
 
   /**
@@ -382,6 +627,12 @@ const App = (() => {
     onSetInputChange,
     toggleTimer,
     skipTimer,
+    createFromPreset,
+    saveTimedObjective,
+    startTimedSet,
+    pauseTimedExercise,
+    skipTimedSet,
+    completeTimedSet,
     saveCounter,
     counterIncrement,
     counterDecrement,
