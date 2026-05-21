@@ -410,6 +410,32 @@ const Store = (() => {
         'Contractions rapides et nettes',
         'Relâchez complètement entre chaque'
       ]
+    },
+    {
+      id: 'perinee-avance',
+      name: 'Périnée - Programme avancé',
+      description: 'Maintien 8-12s, 15 reps × 4 séries/jour + contractions rapides intégrées',
+      icon: '💪',
+      type: 'timed',
+      holdSeconds: 8,
+      releaseSeconds: 5,
+      repsPerSet: 15,
+      setsPerDay: 4,
+      restMinutes: 45,
+      durationDays: 90,
+      progressionRules: [
+        { afterDays: 14, holdSeconds: 10, repsPerSet: 15, note: 'Maintien à 10s, essayez debout' },
+        { afterDays: 28, holdSeconds: 10, repsPerSet: 18, note: '18 répétitions, alternez assis/debout' },
+        { afterDays: 42, holdSeconds: 12, repsPerSet: 18, setsPerDay: 5, note: '12s de maintien, 5 séries/jour' },
+        { afterDays: 60, holdSeconds: 12, repsPerSet: 20, setsPerDay: 5, note: '20 reps × 5 séries, essayez en marchant' }
+      ],
+      tips: [
+        'Vous maîtrisez déjà les bases - focus sur l\'intensité',
+        'Contractez comme si vous vouliez interrompre le flux urinaire ET retenir un gaz simultanément',
+        'Essayez debout puis en marchant pour plus de difficulté',
+        'Respirez normalement tout au long de l\'exercice',
+        'Ajoutez une contraction maximale de 2s en fin de maintien'
+      ]
     }
   ];
 
