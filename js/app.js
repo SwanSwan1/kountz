@@ -100,7 +100,13 @@ const App = (() => {
         UI.renderObjectiveForm();
         break;
       case 'editObjective':
-        UI.renderObjectiveForm(param);
+        // Route vers le bon formulaire selon le type d'objectif
+        const editObj = Store.getObjective(param);
+        if (editObj && editObj.type === 'timed') {
+          UI.renderTimedObjectiveForm(null, param);
+        } else {
+          UI.renderObjectiveForm(param);
+        }
         break;
       case 'session':
         activeObjectiveId = param;
@@ -315,8 +321,12 @@ const App = (() => {
     const form = event.target;
     const data = new FormData(form);
 
+    const id = data.get('id');
     const presetId = data.get('presetId');
     const preset = presetId ? Store.getPreset(presetId) : null;
+
+    // En édition, on récupère l'existant pour garder les progression rules et tips
+    const existing = id ? Store.getObjective(id) : null;
 
     const obj = {
       name: data.get('name').trim(),
@@ -330,10 +340,18 @@ const App = (() => {
       startDate: data.get('startDate') || Store.today(),
       startTime: data.get('startTime') || null,
       endTime: data.get('endTime') || null,
-      progressionRules: preset ? preset.progressionRules || [] : [],
-      tips: preset ? preset.tips || [] : [],
+      progressionRules: existing ? existing.progressionRules : (preset ? preset.progressionRules || [] : []),
+      tips: existing ? existing.tips : (preset ? preset.tips || [] : []),
       active: true
     };
+
+    // Mode édition : conserver l'ID et la date de création
+    if (id) {
+      obj.id = id;
+      if (existing) {
+        obj.createdAt = existing.createdAt;
+      }
+    }
 
     // Validation
     if (!obj.name || !obj.holdSeconds || !obj.releaseSeconds || !obj.repsPerSet || !obj.setsPerDay) {

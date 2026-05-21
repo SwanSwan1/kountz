@@ -969,32 +969,39 @@ const UI = (() => {
   }
 
   /**
-   * Formulaire de création d'un exercice minuté
+   * Formulaire de création / édition d'un exercice minuté
    */
-  function renderTimedObjectiveForm(presetId) {
+  function renderTimedObjectiveForm(presetId, existingId) {
     const preset = presetId ? Store.getPreset(presetId) : null;
+    const obj = existingId ? Store.getObjective(existingId) : null;
+    const isEdit = !!obj;
+    const source = obj || preset; // Priorité à l'objectif existant
 
-    const name = preset ? preset.name : '';
-    const holdSeconds = preset ? preset.holdSeconds : 3;
-    const releaseSeconds = preset ? preset.releaseSeconds : 5;
-    const repsPerSet = preset ? preset.repsPerSet : 10;
-    const setsPerDay = preset ? preset.setsPerDay : 3;
-    const restMinutes = preset ? preset.restMinutes : 60;
-    const durationDays = preset ? preset.durationDays : '';
-    const startDate = Store.today();
+    const name = source ? source.name : '';
+    const holdSeconds = source ? source.holdSeconds : 3;
+    const releaseSeconds = source ? source.releaseSeconds : 5;
+    const repsPerSet = source ? source.repsPerSet : 10;
+    const setsPerDay = source ? source.setsPerDay : 3;
+    const restMinutes = source ? source.restMinutes : 60;
+    const durationDays = source ? (source.durationDays || '') : '';
+    const startDate = obj ? (obj.startDate || Store.today()) : Store.today();
+    const startTime = obj ? (obj.startTime || '') : '';
+    const endTime = obj ? (obj.endTime || '') : '';
+    const tips = obj ? (obj.tips || []) : (preset ? preset.tips || [] : []);
 
     let html = `
       <header class="header">
-        <button class="btn-icon" onclick="App.navigate('presets')" aria-label="Retour">
+        <button class="btn-icon" onclick="App.navigate('${isEdit ? 'home' : 'presets'}')" aria-label="Retour">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M15 18l-6-6 6-6"/>
           </svg>
         </button>
-        <h1>Exercice minuté</h1>
+        <h1>${isEdit ? 'Modifier' : 'Exercice minuté'}</h1>
         <div style="width:40px"></div>
       </header>
 
       <form id="timedObjectiveForm" class="form" onsubmit="App.saveTimedObjective(event)">
+        ${isEdit ? `<input type="hidden" name="id" value="${obj.id}">` : ''}
         ${presetId ? `<input type="hidden" name="presetId" value="${presetId}">` : ''}
 
         <div class="form-group">
@@ -1055,26 +1062,26 @@ const UI = (() => {
         <div class="form-row">
           <div class="form-group">
             <label for="timedStartTime">Heure de début <span class="text-muted">(optionnel)</span></label>
-            <input type="time" id="timedStartTime" name="startTime" value=""
+            <input type="time" id="timedStartTime" name="startTime" value="${startTime}"
                    class="input">
           </div>
           <div class="form-group">
             <label for="timedEndTime">Heure de fin <span class="text-muted">(optionnel)</span></label>
-            <input type="time" id="timedEndTime" name="endTime" value=""
+            <input type="time" id="timedEndTime" name="endTime" value="${endTime}"
                    class="input">
           </div>
         </div>
         <p class="text-muted text-sm">Laisse vide pour un objectif permanent sans limite de durée.</p>
     `;
 
-    // Affiche les conseils du preset si disponible
-    if (preset && preset.tips && preset.tips.length > 0) {
+    // Affiche les conseils si disponibles
+    if (tips.length > 0) {
       html += `
         <div class="tips-box" style="margin-top:16px">
           <h3 style="font-size:0.9rem;color:var(--primary-light);margin-bottom:8px">Conseils</h3>
           <ul style="list-style:none;padding:0">
       `;
-      preset.tips.forEach(tip => {
+      tips.forEach(tip => {
         html += `<li style="font-size:0.85rem;color:var(--text-muted);padding:4px 0">• ${escHtml(tip)}</li>`;
       });
       html += `</ul></div>`;
@@ -1082,8 +1089,9 @@ const UI = (() => {
 
     html += `
         <div class="form-actions">
+          ${isEdit ? `<button type="button" class="btn btn-danger" onclick="App.deleteObjective('${obj.id}')">Supprimer</button>` : ''}
           <button type="submit" class="btn btn-primary btn-block">
-            Créer l'exercice
+            ${isEdit ? 'Enregistrer' : 'Créer l\'exercice'}
           </button>
         </div>
       </form>
