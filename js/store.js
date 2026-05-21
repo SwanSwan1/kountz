@@ -378,9 +378,9 @@ const Store = (() => {
       restMinutes: 60,
       durationDays: 90,
       progressionRules: [
-        { afterDays: 14, holdSeconds: 5, note: 'Maintien augmenté à 5 secondes' },
-        { afterDays: 28, holdSeconds: 7, note: 'Maintien augmenté à 7 secondes' },
-        { afterDays: 42, holdSeconds: 10, note: 'Maintien augmenté à 10 secondes, essayez debout' }
+        { afterDays: 14, holdSeconds: 5, releaseSeconds: 5, note: 'Maintien augmenté à 5 secondes' },
+        { afterDays: 28, holdSeconds: 7, releaseSeconds: 6, note: 'Maintien augmenté à 7 secondes' },
+        { afterDays: 42, holdSeconds: 10, releaseSeconds: 7, note: 'Maintien augmenté à 10 secondes, essayez debout' }
       ],
       tips: [
         'Ne bloquez pas la respiration',
@@ -424,10 +424,10 @@ const Store = (() => {
       restMinutes: 45,
       durationDays: 90,
       progressionRules: [
-        { afterDays: 14, holdSeconds: 10, repsPerSet: 15, note: 'Maintien à 10s, essayez debout' },
-        { afterDays: 28, holdSeconds: 10, repsPerSet: 18, note: '18 répétitions, alternez assis/debout' },
-        { afterDays: 42, holdSeconds: 12, repsPerSet: 18, setsPerDay: 5, note: '12s de maintien, 5 séries/jour' },
-        { afterDays: 60, holdSeconds: 12, repsPerSet: 20, setsPerDay: 5, note: '20 reps × 5 séries, essayez en marchant' }
+        { afterDays: 14, holdSeconds: 10, releaseSeconds: 6, repsPerSet: 15, note: 'Maintien à 10s, essayez debout' },
+        { afterDays: 28, holdSeconds: 10, releaseSeconds: 7, repsPerSet: 18, note: '18 répétitions, alternez assis/debout' },
+        { afterDays: 42, holdSeconds: 12, releaseSeconds: 8, repsPerSet: 18, setsPerDay: 5, note: '12s de maintien, 5 séries/jour' },
+        { afterDays: 60, holdSeconds: 12, releaseSeconds: 8, repsPerSet: 20, setsPerDay: 5, note: '20 reps × 5 séries, essayez en marchant' }
       ],
       tips: [
         'Vous maîtrisez déjà les bases - focus sur l\'intensité',
