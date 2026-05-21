@@ -57,10 +57,20 @@ const App = (() => {
    */
   function registerServiceWorker() {
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('sw.js').then(
-        () => console.log('Service Worker enregistré'),
-        (err) => console.log('Service Worker non enregistré:', err)
-      );
+      navigator.serviceWorker.register('sw.js').then((reg) => {
+        // Force la mise à jour du SW si une nouvelle version est disponible
+        reg.addEventListener('updatefound', () => {
+          const newWorker = reg.installing;
+          newWorker.addEventListener('statechange', () => {
+            if (newWorker.state === 'activated') {
+              // Nouvelle version activée - recharge pour avoir les derniers fichiers
+              window.location.reload();
+            }
+          });
+        });
+        // Vérifie les mises à jour
+        reg.update();
+      }, (err) => console.log('Service Worker non enregistré:', err));
     }
   }
 
