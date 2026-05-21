@@ -1171,6 +1171,68 @@ select.input {
   margin-top: 16px;
 }
 
+/* --- Règles de progression --- */
+.progression-rules {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.progression-rule {
+  background: var(--bg-surface);
+  border: 1px solid var(--text-dim);
+  border-radius: var(--radius);
+  padding: 12px;
+}
+
+.progression-rule-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.progression-rule-title {
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: var(--primary-light);
+}
+
+.btn-icon-sm {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+
+.btn-icon-sm:hover {
+  background: rgba(225, 112, 85, 0.15);
+}
+
+.progression-rule .form-group {
+  margin-bottom: 6px;
+}
+
+.progression-rule .form-group label {
+  font-size: 0.75rem;
+  margin-bottom: 2px;
+}
+
+.progression-rule .form-row {
+  gap: 8px;
+}
+
+.progression-rule .input {
+  padding: 6px 10px;
+  font-size: 0.85rem;
+}
+
 /* --- Preset cards --- */
 .preset-card {
   cursor: default;

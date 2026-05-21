@@ -340,7 +340,7 @@ const App = (() => {
       startDate: data.get('startDate') || Store.today(),
       startTime: data.get('startTime') || null,
       endTime: data.get('endTime') || null,
-      progressionRules: existing ? existing.progressionRules : (preset ? preset.progressionRules || [] : []),
+      progressionRules: collectProgressionRules(data),
       tips: existing ? existing.tips : (preset ? preset.tips || [] : []),
       active: true
     };
@@ -361,6 +361,97 @@ const App = (() => {
 
     Store.saveObjective(obj);
     navigate('home');
+  }
+
+  /**
+   * Collecte les règles de progression depuis le formulaire
+   */
+  function collectProgressionRules(data) {
+    const rules = [];
+    let i = 0;
+    while (data.has(`rule_afterDays_${i}`)) {
+      const afterDays = parseInt(data.get(`rule_afterDays_${i}`));
+      if (!afterDays || afterDays <= 0) { i++; continue; }
+
+      const rule = { afterDays };
+
+      const hold = data.get(`rule_hold_${i}`);
+      if (hold && parseInt(hold) > 0) rule.holdSeconds = parseInt(hold);
+
+      const release = data.get(`rule_release_${i}`);
+      if (release && parseInt(release) > 0) rule.releaseSeconds = parseInt(release);
+
+      const reps = data.get(`rule_reps_${i}`);
+      if (reps && parseInt(reps) > 0) rule.repsPerSet = parseInt(reps);
+
+      const sets = data.get(`rule_sets_${i}`);
+      if (sets && parseInt(sets) > 0) rule.setsPerDay = parseInt(sets);
+
+      const note = data.get(`rule_note_${i}`);
+      if (note && note.trim()) rule.note = note.trim();
+
+      rules.push(rule);
+      i++;
+    }
+
+    // Trie par afterDays croissant
+    rules.sort((a, b) => a.afterDays - b.afterDays);
+    return rules;
+  }
+
+  /**
+   * Ajoute un nouveau palier de progression dans le formulaire
+   */
+  function addProgressionRule() {
+    const container = document.getElementById('progressionRules');
+    if (!container) return;
+
+    // Supprime le message "aucune progression" s'il existe
+    const noMsg = document.getElementById('noRulesMsg');
+    if (noMsg) noMsg.remove();
+
+    // Compte les règles existantes
+    const existingRules = container.querySelectorAll('.progression-rule');
+    const newIndex = existingRules.length;
+
+    // Crée le HTML de la nouvelle règle
+    const temp = document.createElement('div');
+    temp.innerHTML = UI.renderProgressionRuleRow({ afterDays: '', holdSeconds: '', releaseSeconds: '', repsPerSet: '', setsPerDay: '', note: '' }, newIndex);
+    container.appendChild(temp.firstElementChild);
+  }
+
+  /**
+   * Supprime un palier de progression du formulaire
+   */
+  function removeProgressionRule(index) {
+    const container = document.getElementById('progressionRules');
+    if (!container) return;
+
+    const rule = container.querySelector(`[data-rule-index="${index}"]`);
+    if (rule) rule.remove();
+
+    // Ré-indexe les règles restantes pour éviter les trous
+    const remaining = container.querySelectorAll('.progression-rule');
+    remaining.forEach((el, i) => {
+      el.dataset.ruleIndex = i;
+      el.querySelector('.progression-rule-title').textContent = `Palier ${i + 1}`;
+      // Renomme les champs
+      el.querySelectorAll('input').forEach(input => {
+        const oldName = input.name;
+        const suffix = oldName.replace(/^rule_\w+_\d+$/, '').length === 0
+          ? oldName.replace(/_\d+$/, `_${i}`)
+          : oldName.replace(/_\d+$/, `_${i}`);
+        input.name = suffix;
+      });
+      // Met à jour le onclick du bouton supprimer
+      const delBtn = el.querySelector('[onclick*="removeProgressionRule"]');
+      if (delBtn) delBtn.setAttribute('onclick', `App.removeProgressionRule(${i})`);
+    });
+
+    // Si plus de règles, affiche le message
+    if (remaining.length === 0) {
+      container.innerHTML = '<p class="text-muted text-sm" id="noRulesMsg">Aucune progression configurée. L\'exercice restera identique.</p>';
+    }
   }
 
   /**
@@ -647,6 +738,8 @@ const App = (() => {
     skipTimer,
     createFromPreset,
     saveTimedObjective,
+    addProgressionRule,
+    removeProgressionRule,
     startTimedSet,
     pauseTimedExercise,
     skipTimedSet,

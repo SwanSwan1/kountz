@@ -1072,6 +1072,34 @@ const UI = (() => {
           </div>
         </div>
         <p class="text-muted text-sm">Laisse vide pour un objectif permanent sans limite de durée.</p>
+
+        <div class="form-divider">
+          <span>Progression automatique</span>
+        </div>
+
+        <div id="progressionRules" class="progression-rules">
+    `;
+
+    // Récupère les règles de progression
+    const rules = obj ? (obj.progressionRules || []) : (preset ? preset.progressionRules || [] : []);
+
+    if (rules.length > 0) {
+      rules.forEach((rule, i) => {
+        html += renderProgressionRuleRow(rule, i);
+      });
+    } else {
+      html += `<p class="text-muted text-sm" id="noRulesMsg">Aucune progression configurée. L'exercice restera identique.</p>`;
+    }
+
+    html += `
+        </div>
+        <button type="button" class="btn btn-sm btn-outline" style="margin-top:8px"
+                onclick="App.addProgressionRule()">
+          + Ajouter un palier
+        </button>
+        <p class="text-muted text-sm" style="margin-top:6px">
+          Chaque palier modifie les paramètres après X jours. Seuls les champs remplis sont modifiés.
+        </p>
     `;
 
     // Affiche les conseils si disponibles
@@ -1098,6 +1126,66 @@ const UI = (() => {
     `;
 
     render(html);
+  }
+
+  /**
+   * Génère le HTML d'une ligne de règle de progression
+   */
+  function renderProgressionRuleRow(rule, index) {
+    const afterDays = rule.afterDays || '';
+    const holdSec = rule.holdSeconds !== undefined ? rule.holdSeconds : '';
+    const releaseSec = rule.releaseSeconds !== undefined ? rule.releaseSeconds : '';
+    const reps = rule.repsPerSet !== undefined ? rule.repsPerSet : '';
+    const sets = rule.setsPerDay !== undefined ? rule.setsPerDay : '';
+    const note = rule.note || '';
+
+    return `
+      <div class="progression-rule" data-rule-index="${index}">
+        <div class="progression-rule-header">
+          <span class="progression-rule-title">Palier ${index + 1}</span>
+          <button type="button" class="btn-icon btn-icon-sm text-danger"
+                  onclick="App.removeProgressionRule(${index})" aria-label="Supprimer">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M18 6L6 18M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
+        <div class="form-group">
+          <label>Après combien de jours</label>
+          <input type="number" class="input" name="rule_afterDays_${index}" value="${afterDays}"
+                 min="1" max="365" required placeholder="Ex: 14">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Contraction (sec) <span class="text-muted text-sm">opt.</span></label>
+            <input type="number" class="input" name="rule_hold_${index}" value="${holdSec}"
+                   min="1" max="60" placeholder="—">
+          </div>
+          <div class="form-group">
+            <label>Relâchement (sec) <span class="text-muted text-sm">opt.</span></label>
+            <input type="number" class="input" name="rule_release_${index}" value="${releaseSec}"
+                   min="1" max="60" placeholder="—">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Reps/série <span class="text-muted text-sm">opt.</span></label>
+            <input type="number" class="input" name="rule_reps_${index}" value="${reps}"
+                   min="1" max="100" placeholder="—">
+          </div>
+          <div class="form-group">
+            <label>Séries/jour <span class="text-muted text-sm">opt.</span></label>
+            <input type="number" class="input" name="rule_sets_${index}" value="${sets}"
+                   min="1" max="20" placeholder="—">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Note <span class="text-muted text-sm">opt.</span></label>
+          <input type="text" class="input" name="rule_note_${index}" value="${escHtml(note)}"
+                 placeholder="Ex: Essayez debout">
+        </div>
+      </div>
+    `;
   }
 
   /**
@@ -1371,6 +1459,7 @@ const UI = (() => {
     updateTimerDisplay,
     renderPresetSelection,
     renderTimedObjectiveForm,
+    renderProgressionRuleRow,
     renderTimedSession,
     updateTimedExerciseDisplay,
     renderCounterForm,
