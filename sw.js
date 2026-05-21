@@ -3,8 +3,9 @@
  * Cache les fichiers statiques pour le mode hors-ligne
  */
 
-const CACHE_NAME = 'kountz-v10';
+const CACHE_NAME = 'kountz-v11';
 let notificationTimeout = null;
+let reminderTimeouts = [];
 const ASSETS = [
   './',
   './index.html',
@@ -74,6 +75,55 @@ self.addEventListener('message', (event) => {
       notificationTimeout = null;
     }
   }
+
+  // Rappels quotidiens
+  if (data.type === 'SCHEDULE_REMINDERS') {
+    // Annule les anciens rappels
+    reminderTimeouts.forEach(t => clearTimeout(t));
+    reminderTimeouts = [];
+
+    // Programme chaque rappel
+    const now = Date.now();
+    data.reminders.forEach((reminder) => {
+      const delay = reminder.time - now;
+      if (delay > 0) {
+        const t = setTimeout(() => {
+          self.registration.showNotification(reminder.title, {
+            body: reminder.body,
+            icon: './icons/icon-192.svg',
+            tag: 'kountz-reminder-' + reminder.id,
+            requireInteraction: false,
+            vibrate: [100, 50, 100]
+          });
+        }, delay);
+        reminderTimeouts.push(t);
+      }
+    });
+  }
+
+  if (data.type === 'CANCEL_REMINDERS') {
+    reminderTimeouts.forEach(t => clearTimeout(t));
+    reminderTimeouts = [];
+  }
+});
+
+// Clic sur notification : ouvre l'app
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+      // Si l'app est déjà ouverte, focus dessus
+      for (const client of windowClients) {
+        if (client.url.includes('kountz') && 'focus' in client) {
+          return client.focus();
+        }
+      }
+      // Sinon ouvre l'app
+      if (clients.openWindow) {
+        return clients.openWindow('./');
+      }
+    })
+  );
 });
 
 // Fetch : stratégie Cache-First avec fallback réseau

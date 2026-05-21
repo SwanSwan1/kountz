@@ -3,7 +3,7 @@
  * Gère la navigation (SPA), les événements et la logique principale
  */
 
-const APP_VERSION = '1.3';
+const APP_VERSION = '1.4';
 
 const App = (() => {
   // État local de l'application
@@ -25,6 +25,9 @@ const App = (() => {
 
     // Demande les permissions de notification
     Timer.requestPermission();
+
+    // Programme les rappels quotidiens
+    scheduleReminders();
 
     // Quand la page redevient visible, recalcule le timer et rafraîchit la vue session
     document.addEventListener('visibilitychange', () => {
@@ -724,6 +727,71 @@ const App = (() => {
   function requestNotifications() {
     Timer.requestPermission().then(() => {
       navigate('settings');
+    });
+  }
+
+  /**
+   * Programme les rappels quotidiens pour les objectifs actifs
+   * Envoie un rappel à l'heure de début si l'objectif du jour n'est pas terminé
+   */
+  function scheduleReminders() {
+    if (!('serviceWorker' in navigator) || !('Notification' in window) || Notification.permission !== 'granted') {
+      return;
+    }
+
+    // Attends que le SW soit prêt
+    navigator.serviceWorker.ready.then((reg) => {
+      const objectives = Store.getActiveObjectives();
+      const reminders = [];
+      const now = new Date();
+      const todayStr = Store.today();
+
+      objectives.forEach((obj) => {
+        // Vérifie si l'objectif du jour est déjà terminé
+        const session = Store.getTodaySession(obj.id);
+        if (session && session.completed) return;
+
+        // Heure de début configurée
+        const startTime = obj.startTime;
+        if (!startTime) return;
+
+        const [h, m] = startTime.split(':').map(Number);
+        const reminderDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m, 0);
+
+        // Si l'heure est déjà passée, programme un rappel dans 1h (si pas terminé)
+        if (reminderDate <= now) {
+          // Rappel dans 1 heure si pas encore fait
+          const setsDone = session ? session.sets.filter(s => s.actual !== null).length : 0;
+          const setsTotal = obj.type === 'timed' ? (obj.setsPerDay || 3) : (session ? session.sets.length : 0);
+          if (setsDone < setsTotal) {
+            const inOneHour = new Date(now.getTime() + 60 * 60 * 1000);
+            reminders.push({
+              id: obj.id,
+              time: inOneHour.getTime(),
+              title: `Kountz - ${obj.name}`,
+              body: `Il te reste des séries à faire aujourd'hui ! (${setsDone}/${setsTotal})`
+            });
+          }
+          return;
+        }
+
+        // Rappel à l'heure de début
+        const isTimed = obj.type === 'timed';
+        const target = isTimed ? `${obj.setsPerDay || 3} séries` : `${obj.dailyTarget} ${obj.name.toLowerCase()}`;
+        reminders.push({
+          id: obj.id,
+          time: reminderDate.getTime(),
+          title: `Kountz - ${obj.name}`,
+          body: `C'est l'heure ! Objectif : ${target}`
+        });
+      });
+
+      if (reminders.length > 0 && reg.active) {
+        reg.active.postMessage({
+          type: 'SCHEDULE_REMINDERS',
+          reminders
+        });
+      }
     });
   }
 

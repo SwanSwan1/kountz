@@ -110,19 +110,26 @@ const Timer = (() => {
   }
 
   /**
-   * Envoie une notification
+   * Envoie une notification via le Service Worker (fonctionne en arrière-plan sur Android)
    */
   function sendNotification() {
     if ('Notification' in window && Notification.permission === 'granted') {
-      try {
-        new Notification('Kountz - Pause terminée !', {
-          body: 'C\'est l\'heure de la prochaine série !',
-          icon: 'icons/icon-192.svg',
-          tag: 'kountz-timer',
-          requireInteraction: true
+      // Privilégie le SW pour les notifications (plus fiable sur mobile)
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.ready.then((reg) => {
+          reg.showNotification('Kountz - Pause terminée !', {
+            body: 'C\'est l\'heure de la prochaine série !',
+            icon: './icons/icon-192.svg',
+            tag: 'kountz-timer',
+            requireInteraction: true,
+            vibrate: [200, 100, 200, 100, 200]
+          });
+        }).catch(() => {
+          // Fallback notification classique
+          try { new Notification('Kountz - Pause terminée !', { body: 'Prochaine série !' }); } catch (e) {}
         });
-      } catch (e) {
-        console.log('Notification non disponible:', e);
+      } else {
+        try { new Notification('Kountz - Pause terminée !', { body: 'Prochaine série !' }); } catch (e) {}
       }
     }
   }
