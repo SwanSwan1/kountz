@@ -896,6 +896,16 @@ const UI = (() => {
       </section>
 
       <section class="section">
+        <h3>Application</h3>
+        <button class="btn btn-block btn-outline" onclick="App.forceUpdate()">
+          Vérifier les mises à jour
+        </button>
+        <p class="text-muted" style="margin-top:0.5rem">
+          Version : ${typeof APP_VERSION !== 'undefined' ? APP_VERSION : '?'}
+        </p>
+      </section>
+
+      <section class="section">
         <h3>Notifications</h3>
         <button class="btn btn-block btn-outline" onclick="App.requestNotifications()">
           Autoriser les notifications
@@ -906,7 +916,7 @@ const UI = (() => {
       </section>
 
       <section class="section text-center text-muted" style="margin-top:2rem">
-        <p>Kountz v1.0</p>
+        <p>Kountz v${typeof APP_VERSION !== 'undefined' ? APP_VERSION : '1.0'}</p>
         <p>PWA de comptage personnel</p>
       </section>
     `;

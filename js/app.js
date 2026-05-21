@@ -3,6 +3,8 @@
  * Gère la navigation (SPA), les événements et la logique principale
  */
 
+const APP_VERSION = '1.3';
+
 const App = (() => {
   // État local de l'application
   let currentView = 'home';
@@ -725,6 +727,31 @@ const App = (() => {
     });
   }
 
+  /**
+   * Force la mise à jour du Service Worker et recharge l'app
+   */
+  function forceUpdate() {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistration().then((reg) => {
+        if (reg) {
+          reg.unregister().then(() => {
+            // Vide le cache
+            caches.keys().then((names) => {
+              Promise.all(names.map(name => caches.delete(name))).then(() => {
+                alert('Mise à jour en cours...');
+                window.location.reload(true);
+              });
+            });
+          });
+        } else {
+          window.location.reload(true);
+        }
+      });
+    } else {
+      window.location.reload(true);
+    }
+  }
+
   // --- Utilitaires ---
 
   /**
@@ -761,7 +788,8 @@ const App = (() => {
     exportData,
     importData,
     clearAllData,
-    requestNotifications
+    requestNotifications,
+    forceUpdate
   };
 })();
 
