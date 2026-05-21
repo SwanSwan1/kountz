@@ -14,7 +14,6 @@ const Stats = (() => {
 
     const sessions = Store.getRecentSessions(objectiveId, days);
     const sessionMap = new Map(sessions.map(s => [s.date, s]));
-    const isTimed = obj.type === 'timed';
 
     const data = [];
     for (let i = days - 1; i >= 0; i--) {
@@ -23,15 +22,7 @@ const Stats = (() => {
       const dateStr = d.toISOString().slice(0, 10);
       const session = sessionMap.get(dateStr);
 
-      // Pour les exercices minutés, on affiche les séries complétées / séries totales
-      let done, target;
-      if (isTimed) {
-        done = session ? session.sets.filter(s => s.actual !== null).length : 0;
-        target = obj.setsPerDay || 3;
-      } else {
-        done = session ? session.totalDone : 0;
-        target = obj.dailyTarget;
-      }
+      const { done, target } = Objectives.getProgress(obj, session);
 
       data.push({
         date: dateStr,
@@ -58,7 +49,6 @@ const Stats = (() => {
     const obj = Store.getObjective(objectiveId);
     if (!obj) return { weeks: [], year, month };
 
-    const isTimed = obj.type === 'timed';
     const sessions = Store.getSessionsForObjective(objectiveId);
     const sessionMap = new Map(sessions.map(s => [s.date, s]));
 
@@ -85,11 +75,7 @@ const Stats = (() => {
         }
       }
 
-      // Pour les exercices minutés, affiche séries/setsPerDay
-      const dayDone = isTimed
-        ? (session ? session.sets.filter(s => s.actual !== null).length : 0)
-        : (session ? session.totalDone : 0);
-      const dayTarget = isTimed ? (obj.setsPerDay || 3) : obj.dailyTarget;
+      const { done: dayDone, target: dayTarget } = Objectives.getProgress(obj, session);
 
       week.push({
         day,

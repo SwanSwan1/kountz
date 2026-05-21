@@ -3,18 +3,27 @@
  * Gère la navigation (SPA), les événements et la logique principale
  */
 
-const APP_VERSION = '1.4';
+const APP_VERSION = '1.5';
 
 const App = (() => {
   // État local de l'application
   let currentView = 'home';
   let currentParam = null;
-  let activeSessionId = null;
   let activeObjectiveId = null;
 
   // État de l'exercice minuté en cours
   let timedState = null;  // { phase, rep, setIndex, countdown, holdTotal, releaseTotal, totalReps, intervalId }
   let timedObjectiveId = null;
+
+  /**
+   * Arrête l'exercice minuté en cours (clear interval + reset état)
+   */
+  function stopTimedExercise() {
+    if (timedState && timedState.intervalId) {
+      clearInterval(timedState.intervalId);
+    }
+    timedState = null;
+  }
 
   /**
    * Initialise l'application
@@ -93,8 +102,7 @@ const App = (() => {
     // Le timer de pause continue en arrière-plan même si on change de vue
     // Mais on arrête l'exercice minuté si on quitte la session
     if (timedState && timedState.intervalId && (view !== 'session' || param !== timedObjectiveId)) {
-      clearInterval(timedState.intervalId);
-      timedState = null;
+      stopTimedExercise();
     }
 
     currentView = view;
@@ -234,7 +242,6 @@ const App = (() => {
     const input = document.getElementById('setActual');
     const actual = input ? parseInt(input.value) : session.sets[nextIdx].planned;
 
-    activeSessionId = session.id;
     Objectives.completeSet(session.id, nextIdx, actual);
 
     // Lance le timer de pause si pas la dernière série
@@ -452,11 +459,7 @@ const App = (() => {
       el.querySelector('.progression-rule-title').textContent = `Palier ${i + 1}`;
       // Renomme les champs
       el.querySelectorAll('input').forEach(input => {
-        const oldName = input.name;
-        const suffix = oldName.replace(/^rule_\w+_\d+$/, '').length === 0
-          ? oldName.replace(/_\d+$/, `_${i}`)
-          : oldName.replace(/_\d+$/, `_${i}`);
-        input.name = suffix;
+        input.name = input.name.replace(/_\d+$/, `_${i}`);
       });
       // Met à jour le onclick du bouton supprimer
       const delBtn = el.querySelector('[onclick*="removeProgressionRule"]');
@@ -563,9 +566,7 @@ const App = (() => {
    * Passe la série en cours (sans la compléter normalement)
    */
   function skipTimedSet() {
-    if (timedState && timedState.intervalId) {
-      clearInterval(timedState.intervalId);
-    }
+    stopTimedExercise();
 
     if (timedObjectiveId) {
       // Marque la série comme faite avec 0 reps
@@ -578,7 +579,6 @@ const App = (() => {
       }
     }
 
-    timedState = null;
     if (timedObjectiveId) {
       UI.renderTimedSession(timedObjectiveId);
     }
@@ -588,16 +588,15 @@ const App = (() => {
    * Termine la série minutée en cours et lance le timer de pause
    */
   function completeTimedSet(objectiveId) {
-    // Arrête le tick
-    if (timedState && timedState.intervalId) {
-      clearInterval(timedState.intervalId);
-    }
+    // Arrête le tick (sauvegarde l'état avant reset)
+    const savedTimedState = timedState;
+    stopTimedExercise();
 
     const session = Store.getTodaySession(objectiveId);
     if (!session) return;
 
-    const setIndex = timedState ? timedState.setIndex : Objectives.getNextSetIndex(session);
-    const reps = timedState ? timedState.rep : 0;
+    const setIndex = savedTimedState ? savedTimedState.setIndex : Objectives.getNextSetIndex(session);
+    const reps = savedTimedState ? savedTimedState.rep : 0;
 
     // Valide la série avec le nombre de reps effectuées
     Objectives.completeSet(session.id, setIndex, reps);
@@ -624,8 +623,6 @@ const App = (() => {
         }
       );
     }
-
-    timedState = null;
 
     // Re-render
     UI.renderTimedSession(objectiveId);
@@ -715,7 +712,7 @@ const App = (() => {
   function clearAllData() {
     if (confirm('ATTENTION : Cela supprimera définitivement toutes les données. Continuer ?')) {
       if (confirm('Vraiment tout effacer ?')) {
-        localStorage.removeItem('kountz_data');
+        Store.clearAll();
         navigate('home');
       }
     }
@@ -761,8 +758,7 @@ const App = (() => {
         // Si l'heure est déjà passée, programme un rappel dans 1h (si pas terminé)
         if (reminderDate <= now) {
           // Rappel dans 1 heure si pas encore fait
-          const setsDone = session ? session.sets.filter(s => s.actual !== null).length : 0;
-          const setsTotal = obj.type === 'timed' ? (obj.setsPerDay || 3) : (session ? session.sets.length : 0);
+          const { done: setsDone, target: setsTotal } = Objectives.getProgress(obj, session);
           if (setsDone < setsTotal) {
             const inOneHour = new Date(now.getTime() + 60 * 60 * 1000);
             reminders.push({
@@ -777,7 +773,8 @@ const App = (() => {
 
         // Rappel à l'heure de début
         const isTimed = obj.type === 'timed';
-        const target = isTimed ? `${obj.setsPerDay || 3} séries` : `${obj.dailyTarget} ${obj.name.toLowerCase()}`;
+        const reminderTarget = Objectives.getProgress(obj, null).target;
+        const target = isTimed ? `${reminderTarget} séries` : `${reminderTarget} ${obj.name.toLowerCase()}`;
         reminders.push({
           id: obj.id,
           time: reminderDate.getTime(),

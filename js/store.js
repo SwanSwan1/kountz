@@ -5,6 +5,7 @@
 
 const Store = (() => {
   const STORAGE_KEY = 'kountz_data';
+  const DEFAULT_SETS_PER_DAY = 3;
 
   // Structure par défaut
   const defaultData = {
@@ -13,6 +14,9 @@ const Store = (() => {
     counters: [],
     counterEntries: []
   };
+
+  // Cache en mémoire pour éviter de parser le JSON à chaque accès
+  let _cache = null;
 
   /**
    * Génère un UUID v4 simple
@@ -34,18 +38,21 @@ const Store = (() => {
   }
 
   /**
-   * Charge toutes les données depuis localStorage
+   * Charge toutes les données depuis localStorage (avec cache mémoire)
    */
   function loadAll() {
+    if (_cache) return _cache;
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return { ...defaultData };
+      if (!raw) { _cache = { ...defaultData }; return _cache; }
       const parsed = JSON.parse(raw);
       // Fusionne avec les valeurs par défaut pour gérer les migrations
-      return { ...defaultData, ...parsed };
+      _cache = { ...defaultData, ...parsed };
+      return _cache;
     } catch (e) {
       console.error('Erreur de chargement des données:', e);
-      return { ...defaultData };
+      _cache = { ...defaultData };
+      return _cache;
     }
   }
 
@@ -55,6 +62,7 @@ const Store = (() => {
   function saveAll(data) {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      _cache = data;
     } catch (e) {
       console.error('Erreur de sauvegarde des données:', e);
     }
@@ -111,20 +119,22 @@ const Store = (() => {
       return s.completed && s.date >= obj.startDate && s.date <= endDate;
     });
 
-    // Jours manqués (passés sans complétion)
-    const missedDays = [];
+    // Set des dates complétées pour lookup O(1)
+    const completedDates = new Set(
+      sessions.filter(s => s.completed && s.date >= obj.startDate && s.date <= endDate).map(s => s.date)
+    );
+
+    // Jours manqués (passés sans complétion, hors aujourd'hui)
+    let missedCount = 0;
     const d = new Date(obj.startDate);
     const todayStr = today();
     while (d.toISOString().slice(0, 10) < todayStr && d.toISOString().slice(0, 10) <= endDate) {
       const dateStr = d.toISOString().slice(0, 10);
-      const session = sessions.find(s => s.date === dateStr);
-      if (!session || !session.completed) {
-        missedDays.push(dateStr);
+      if (!completedDates.has(dateStr)) {
+        missedCount++;
       }
       d.setDate(d.getDate() + 1);
     }
-    // Ne pas compter aujourd'hui comme manqué (journée en cours)
-    const missedCount = missedDays.filter(date => date < todayStr).length;
 
     return {
       currentDay: Math.min(currentDay, obj.durationDays),
@@ -138,13 +148,6 @@ const Store = (() => {
         ? Math.round((completedSessions.length / Math.min(currentDay, obj.durationDays)) * 100)
         : 0
     };
-  }
-
-  /**
-   * Retourne tous les objectifs (actifs + défis terminés) pour les stats
-   */
-  function getAllObjectivesIncludingExpired() {
-    return loadAll().objectives.filter(o => o.active);
   }
 
   function getObjective(id) {
@@ -362,6 +365,14 @@ const Store = (() => {
     }
   }
 
+  /**
+   * Efface toutes les données
+   */
+  function clearAll() {
+    localStorage.removeItem(STORAGE_KEY);
+    _cache = null;
+  }
+
   // --- Presets d'exercices minutés ---
 
   const PRESETS = [
@@ -454,6 +465,7 @@ const Store = (() => {
   }
 
   return {
+    DEFAULT_SETS_PER_DAY,
     generateId,
     today,
     getObjectives,
@@ -481,6 +493,7 @@ const Store = (() => {
     incrementCounter,
     exportData,
     importData,
+    clearAll,
     PRESETS,
     getPresets,
     getPreset

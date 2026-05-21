@@ -51,21 +51,17 @@ const UI = (() => {
         const isTimed = obj.type === 'timed';
 
         // Calcul de la progression selon le type
-        let progressText, percent;
+        const progress = Objectives.getProgress(obj, session);
+        const percent = Math.min(100, Math.round((progress.done / progress.target) * 100));
+        let progressText;
         if (isTimed) {
-          const setsTotal = obj.setsPerDay || 3;
-          const setsDone = session ? session.sets.filter(s => s.actual !== null).length : 0;
-          percent = Math.min(100, Math.round((setsDone / setsTotal) * 100));
-          progressText = `<span class="progress-value">Séries : ${setsDone}</span>
+          progressText = `<span class="progress-value">Séries : ${progress.done}</span>
             <span class="progress-sep">/</span>
-            <span class="progress-target">${setsTotal} aujourd'hui</span>`;
+            <span class="progress-target">${progress.target} aujourd'hui</span>`;
         } else {
-          const done = session ? session.totalDone : 0;
-          const target = obj.dailyTarget;
-          percent = Math.min(100, Math.round((done / target) * 100));
-          progressText = `<span class="progress-value">${done}</span>
+          progressText = `<span class="progress-value">${progress.done}</span>
             <span class="progress-sep">/</span>
-            <span class="progress-target">${target}</span>`;
+            <span class="progress-target">${progress.target}</span>`;
         }
 
         html += `
@@ -806,7 +802,7 @@ const UI = (() => {
         <div class="bar-chart">
     `;
 
-    const chartTarget = obj.type === 'timed' ? (obj.setsPerDay || 3) : obj.dailyTarget;
+    const chartTarget = Objectives.getProgress(obj, null).target;
     const maxVal = Math.max(...barData.map(d => d.done), chartTarget, 1);
     barData.forEach(d => {
       const h = Math.max(4, Math.round((d.done / maxVal) * 120));
@@ -1425,7 +1421,6 @@ const UI = (() => {
     }
 
     // Countdown avec décimale
-    const displaySeconds = Math.ceil(state.countdown / 10) / 10;
     countdownEl.textContent = (state.countdown / 10).toFixed(1) + 's';
 
     // Anneau de progression pour la phase en cours
@@ -1455,9 +1450,7 @@ const UI = (() => {
    * Échappe le HTML pour éviter les injections
    */
   function escHtml(str) {
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
+    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
   return {

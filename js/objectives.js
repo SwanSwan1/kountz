@@ -213,6 +213,24 @@ const Objectives = (() => {
   }
 
   /**
+   * Retourne la progression (done/target) pour un objectif, qu'il soit minuté ou comptage
+   * @param {object} obj - L'objectif
+   * @param {object|null} session - La session du jour (ou null)
+   * @returns {{ done: number, target: number }}
+   */
+  function getProgress(obj, session) {
+    if (obj.type === 'timed') {
+      const setsTotal = obj.setsPerDay || Store.DEFAULT_SETS_PER_DAY;
+      const setsDone = session ? session.sets.filter(s => s.actual !== null).length : 0;
+      return { done: setsDone, target: setsTotal };
+    }
+    return {
+      done: session ? session.totalDone : 0,
+      target: obj.dailyTarget
+    };
+  }
+
+  /**
    * Calcule les paramètres d'exercice minuté en tenant compte de la progression
    * @param {object} obj - L'objectif avec progression rules
    * @returns {object} { holdSeconds, releaseSeconds, repsPerSet, setsPerDay, progressionNote }
@@ -222,7 +240,7 @@ const Objectives = (() => {
     let holdSeconds = obj.holdSeconds || 3;
     let releaseSeconds = obj.releaseSeconds || 5;
     let repsPerSet = obj.repsPerSet || 10;
-    let setsPerDay = obj.setsPerDay || 3;
+    let setsPerDay = obj.setsPerDay || Store.DEFAULT_SETS_PER_DAY;
     let progressionNote = null;
 
     // Applique les règles de progression si disponibles
@@ -388,6 +406,7 @@ const Objectives = (() => {
     calculateDistribution,
     calculateSchedule,
     checkTimeRange,
+    getProgress,
     getTimedParams,
     getOrCreateTodaySession,
     getOrCreateTimedSession,
