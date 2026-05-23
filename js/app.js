@@ -3,7 +3,7 @@
  * Gère la navigation (SPA), les événements et la logique principale
  */
 
-const APP_VERSION = '2.2';
+const APP_VERSION = '2.3';
 const PUSH_SERVER = 'https://kountz-push.swanny-l.workers.dev';
 const VAPID_PUBLIC_KEY = 'BLAl55h_79ERizIMq14zWxhuZCu3Iw3hyISKGkX9sWeSU7uSzWAJ40qNFFgXyIsiOnIv7xZfy0d53LkdDZJQJTQ';
 
@@ -924,25 +924,27 @@ const App = (() => {
    * Force la mise à jour du Service Worker et recharge l'app
    */
   async function forceUpdate() {
+    // URL propre sans hash ni query
+    const baseUrl = window.location.origin + window.location.pathname.replace(/\/+$/, '/');
+    const bustUrl = baseUrl + '?_=' + Date.now();
+
     try {
-      // Désinscrit le SW
+      // 1. Désinscrit tous les SW
       if ('serviceWorker' in navigator) {
-        const reg = await navigator.serviceWorker.getRegistration();
-        if (reg) await reg.unregister();
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map(r => r.unregister()));
       }
-      // Vide tous les caches
+      // 2. Vide tous les caches
       if ('caches' in window) {
         const names = await caches.keys();
         await Promise.all(names.map(name => caches.delete(name)));
       }
-      // Recharge en bypassant le cache via fetch puis redirect
-      const url = window.location.origin + window.location.pathname;
-      await fetch(url, { cache: 'no-store' });
-      window.location.replace(url + '#home');
     } catch (e) {
-      // Fallback brut
-      window.location.replace(window.location.origin + window.location.pathname + '?r=' + Date.now());
+      // Continue même si ça échoue
     }
+
+    // 3. Redirige avec cache-bust (le ? force le navigateur à re-fetch)
+    window.location.href = bustUrl;
   }
 
   /**
