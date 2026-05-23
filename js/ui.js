@@ -394,7 +394,12 @@ const UI = (() => {
       </div>
     `;
 
-    // Zone timer
+    // Zone timer - arrête si objectif terminé
+    if (allDone || session.completed) {
+      if (Timer.isRunning()) {
+        Timer.stop();
+      }
+    }
     html += `<div id="timerZone" class="timer-zone"></div>`;
 
     // Série en cours
@@ -1292,7 +1297,13 @@ const UI = (() => {
       </div>
     `;
 
-    // Zone timer (pour pause entre séries)
+    // Zone timer (pour pause entre séries) - masquée si objectif terminé
+    if (allDone || session.completed) {
+      // Arrête le timer de pause s'il tourne encore (plus de série à faire)
+      if (Timer.isRunning()) {
+        Timer.stop();
+      }
+    }
     html += `<div id="timerZone" class="timer-zone"></div>`;
 
     // Zone de l'exercice minuté

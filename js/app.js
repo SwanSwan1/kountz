@@ -3,7 +3,7 @@
  * Gère la navigation (SPA), les événements et la logique principale
  */
 
-const APP_VERSION = '2.1';
+const APP_VERSION = '2.2';
 const PUSH_SERVER = 'https://kountz-push.swanny-l.workers.dev';
 const VAPID_PUBLIC_KEY = 'BLAl55h_79ERizIMq14zWxhuZCu3Iw3hyISKGkX9sWeSU7uSzWAJ40qNFFgXyIsiOnIv7xZfy0d53LkdDZJQJTQ';
 
@@ -234,6 +234,12 @@ const App = (() => {
    */
   function completeCurrentSet() {
     if (!activeObjectiveId) return;
+
+    // Arrête le timer de pause s'il tourne (l'utilisateur n'a pas attendu)
+    if (Timer.isRunning()) {
+      Timer.stop();
+      UI.updateTimerDisplay(null);
+    }
 
     const session = Store.getTodaySession(activeObjectiveId);
     if (!session) return;
