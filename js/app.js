@@ -3,7 +3,9 @@
  * Gère la navigation (SPA), les événements et la logique principale
  */
 
-const APP_VERSION = '1.6';
+const APP_VERSION = '1.7';
+const PUSH_SERVER = 'https://kountz-push.swanny-l.workers.dev';
+const VAPID_PUBLIC_KEY = 'BLAl55h_79ERizIMq14zWxhuZCu3Iw3hyISKGkX9sWeSU7uSzWAJ40qNFFgXyIsiOnIv7xZfy0d53LkdDZJQJTQ';
 
 const App = (() => {
   // État local de l'application
@@ -36,8 +38,8 @@ const App = (() => {
     // Demande les permissions de notification
     Timer.requestPermission();
 
-    // Programme les rappels quotidiens
-    scheduleReminders();
+    // Enregistre l'abonnement push et programme les rappels
+    registerPushAndSchedule();
 
     // Quand la page redevient visible, recalcule le timer et rafraîchit la vue session
     document.addEventListener('visibilitychange', () => {
@@ -763,66 +765,145 @@ const App = (() => {
   }
 
   /**
-   * Programme les rappels quotidiens pour les objectifs actifs
-   * Envoie un rappel à l'heure de début si l'objectif du jour n'est pas terminé
+   * Génère un deviceId unique et persistant
    */
-  function scheduleReminders() {
-    if (!('serviceWorker' in navigator) || !('Notification' in window) || Notification.permission !== 'granted') {
+  function getDeviceId() {
+    let id = localStorage.getItem('kountz_device_id');
+    if (!id) {
+      id = 'dev-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+      localStorage.setItem('kountz_device_id', id);
+    }
+    return id;
+  }
+
+  /**
+   * Enregistre l'abonnement push auprès du serveur et programme les rappels
+   */
+  async function registerPushAndSchedule() {
+    if (!('serviceWorker' in navigator) || !('Notification' in window) || !('PushManager' in window)) {
       return;
     }
 
-    // Attends que le SW soit prêt
+    if (Notification.permission !== 'granted') return;
+
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const deviceId = getDeviceId();
+
+      // Vérifie si on a déjà un abonnement push
+      let subscription = await reg.pushManager.getSubscription();
+
+      if (!subscription) {
+        // Convertit la clé VAPID en Uint8Array
+        const vapidKey = base64UrlToUint8Array(VAPID_PUBLIC_KEY);
+        subscription = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: vapidKey
+        });
+      }
+
+      // Envoie l'abonnement au serveur
+      await fetch(`${PUSH_SERVER}/subscribe`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subscription, deviceId })
+      });
+
+      // Programme les rappels sur le serveur
+      await scheduleReminders(deviceId);
+    } catch (e) {
+      console.log('Push registration failed:', e);
+      // Fallback : rappels locaux via SW (même si moins fiable)
+      scheduleLocalReminders();
+    }
+  }
+
+  /**
+   * Programme les rappels quotidiens sur le serveur push
+   */
+  async function scheduleReminders(deviceId) {
+    const objectives = Store.getActiveObjectives();
+    const reminders = [];
+    const now = new Date();
+
+    objectives.forEach((obj) => {
+      const session = Store.getTodaySession(obj.id);
+      if (session && session.completed) return;
+
+      const startTime = obj.startTime;
+      if (!startTime) return;
+
+      const [h, m] = startTime.split(':').map(Number);
+      const reminderDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m, 0);
+
+      if (reminderDate <= now) {
+        const { done: setsDone, target: setsTotal } = Objectives.getProgress(obj, session);
+        if (setsDone < setsTotal) {
+          const inOneHour = new Date(now.getTime() + 60 * 60 * 1000);
+          reminders.push({
+            id: obj.id,
+            time: inOneHour.toISOString(),
+            title: `Kountz - ${obj.name}`,
+            body: `Il te reste des séries à faire ! (${setsDone}/${setsTotal})`
+          });
+        }
+        return;
+      }
+
+      const reminderTarget = Objectives.getProgress(obj, null).target;
+      const isTimed = obj.type === 'timed';
+      const target = isTimed ? `${reminderTarget} séries` : `${reminderTarget} ${obj.name.toLowerCase()}`;
+      reminders.push({
+        id: obj.id,
+        time: reminderDate.toISOString(),
+        title: `Kountz - ${obj.name}`,
+        body: `C'est l'heure ! Objectif : ${target}`
+      });
+    });
+
+    if (reminders.length > 0) {
+      await fetch(`${PUSH_SERVER}/schedule`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceId, reminders })
+      });
+    }
+  }
+
+  /**
+   * Fallback : rappels locaux via le Service Worker (moins fiable sur Android)
+   */
+  function scheduleLocalReminders() {
+    if (!('serviceWorker' in navigator) || Notification.permission !== 'granted') return;
+
     navigator.serviceWorker.ready.then((reg) => {
       const objectives = Store.getActiveObjectives();
       const reminders = [];
       const now = new Date();
-      const todayStr = Store.today();
 
       objectives.forEach((obj) => {
-        // Vérifie si l'objectif du jour est déjà terminé
         const session = Store.getTodaySession(obj.id);
         if (session && session.completed) return;
+        if (!obj.startTime) return;
 
-        // Heure de début configurée
-        const startTime = obj.startTime;
-        if (!startTime) return;
-
-        const [h, m] = startTime.split(':').map(Number);
+        const [h, m] = obj.startTime.split(':').map(Number);
         const reminderDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m, 0);
 
-        // Si l'heure est déjà passée, programme un rappel dans 1h (si pas terminé)
-        if (reminderDate <= now) {
-          // Rappel dans 1 heure si pas encore fait
-          const { done: setsDone, target: setsTotal } = Objectives.getProgress(obj, session);
-          if (setsDone < setsTotal) {
-            const inOneHour = new Date(now.getTime() + 60 * 60 * 1000);
-            reminders.push({
-              id: obj.id,
-              time: inOneHour.getTime(),
-              title: `Kountz - ${obj.name}`,
-              body: `Il te reste des séries à faire aujourd'hui ! (${setsDone}/${setsTotal})`
-            });
-          }
-          return;
+        if (reminderDate > now) {
+          const reminderTarget = Objectives.getProgress(obj, null).target;
+          const isTimed = obj.type === 'timed';
+          const target = isTimed ? `${reminderTarget} séries` : `${reminderTarget} ${obj.name.toLowerCase()}`;
+          reminders.push({
+            id: obj.id,
+            time: reminderDate.getTime(),
+            title: `Kountz - ${obj.name}`,
+            body: `C'est l'heure ! Objectif : ${target}`
+          });
         }
-
-        // Rappel à l'heure de début
-        const isTimed = obj.type === 'timed';
-        const reminderTarget = Objectives.getProgress(obj, null).target;
-        const target = isTimed ? `${reminderTarget} séries` : `${reminderTarget} ${obj.name.toLowerCase()}`;
-        reminders.push({
-          id: obj.id,
-          time: reminderDate.getTime(),
-          title: `Kountz - ${obj.name}`,
-          body: `C'est l'heure ! Objectif : ${target}`
-        });
       });
 
       if (reminders.length > 0 && reg.active) {
-        reg.active.postMessage({
-          type: 'SCHEDULE_REMINDERS',
-          reminders
-        });
+        reg.active.postMessage({ type: 'SCHEDULE_REMINDERS', reminders });
       }
     });
   }
@@ -850,6 +931,18 @@ const App = (() => {
     } else {
       window.location.reload(true);
     }
+  }
+
+  /**
+   * Convertit une clé base64url en Uint8Array (pour applicationServerKey)
+   */
+  function base64UrlToUint8Array(base64Url) {
+    const padding = '='.repeat((4 - base64Url.length % 4) % 4);
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/') + padding;
+    const raw = atob(base64);
+    const arr = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+    return arr;
   }
 
   // --- Utilitaires ---

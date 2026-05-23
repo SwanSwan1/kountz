@@ -3,7 +3,7 @@
  * Cache les fichiers statiques pour le mode hors-ligne
  */
 
-const CACHE_NAME = 'kountz-v13';
+const CACHE_NAME = 'kountz-v14';
 let notificationTimeout = null;
 let reminderTimeouts = [];
 const ASSETS = [
@@ -105,6 +105,27 @@ self.addEventListener('message', (event) => {
     reminderTimeouts.forEach(t => clearTimeout(t));
     reminderTimeouts = [];
   }
+});
+
+// Réception d'une notification push du serveur
+self.addEventListener('push', (event) => {
+  let data = { title: 'Kountz', body: '' };
+  try {
+    data = event.data ? event.data.json() : data;
+  } catch (e) {
+    data.body = event.data ? event.data.text() : '';
+  }
+
+  event.waitUntil(
+    self.registration.showNotification(data.title || 'Kountz', {
+      body: data.body || '',
+      icon: data.icon || './icons/icon-192.svg',
+      tag: data.tag || 'kountz-push',
+      requireInteraction: true,
+      vibrate: [200, 100, 200, 100, 200],
+      data: data.data || {}
+    })
+  );
 });
 
 // Clic sur notification : ouvre l'app
