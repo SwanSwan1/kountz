@@ -3,7 +3,7 @@
  * Gère la navigation (SPA), les événements et la logique principale
  */
 
-const APP_VERSION = '2.0';
+const APP_VERSION = '2.1';
 const PUSH_SERVER = 'https://kountz-push.swanny-l.workers.dev';
 const VAPID_PUBLIC_KEY = 'BLAl55h_79ERizIMq14zWxhuZCu3Iw3hyISKGkX9sWeSU7uSzWAJ40qNFFgXyIsiOnIv7xZfy0d53LkdDZJQJTQ';
 
@@ -479,6 +479,12 @@ const App = (() => {
    * Démarre une série d'exercice minuté
    */
   function startTimedSet(objectiveId) {
+    // Arrête le timer de pause s'il tourne encore
+    if (Timer.isRunning()) {
+      Timer.stop();
+      UI.updateTimerDisplay(null);
+    }
+
     const obj = Store.getObjective(objectiveId);
     if (!obj) return;
 
@@ -911,24 +917,25 @@ const App = (() => {
   /**
    * Force la mise à jour du Service Worker et recharge l'app
    */
-  function forceUpdate() {
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.getRegistration().then((reg) => {
-        if (reg) {
-          reg.unregister().then(() => {
-            caches.keys().then((names) => {
-              Promise.all(names.map(name => caches.delete(name))).then(() => {
-                // Redirige avec un paramètre anti-cache pour bypasser le cache HTTP
-                window.location.href = window.location.pathname + '?v=' + Date.now();
-              });
-            });
-          });
-        } else {
-          window.location.href = window.location.pathname + '?v=' + Date.now();
-        }
-      });
-    } else {
-      window.location.href = window.location.pathname + '?v=' + Date.now();
+  async function forceUpdate() {
+    try {
+      // Désinscrit le SW
+      if ('serviceWorker' in navigator) {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (reg) await reg.unregister();
+      }
+      // Vide tous les caches
+      if ('caches' in window) {
+        const names = await caches.keys();
+        await Promise.all(names.map(name => caches.delete(name)));
+      }
+      // Recharge en bypassant le cache via fetch puis redirect
+      const url = window.location.origin + window.location.pathname;
+      await fetch(url, { cache: 'no-store' });
+      window.location.replace(url + '#home');
+    } catch (e) {
+      // Fallback brut
+      window.location.replace(window.location.origin + window.location.pathname + '?r=' + Date.now());
     }
   }
 
