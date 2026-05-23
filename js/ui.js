@@ -492,6 +492,26 @@ const UI = (() => {
     }
 
     const percent = Math.round(((data.total - data.remaining) / data.total) * 100);
+
+    // Si le timer est déjà affiché, met à jour sans recréer le DOM
+    const existing = zone.querySelector('.timer-display');
+    if (existing) {
+      const progressCircle = zone.querySelector('.timer-progress');
+      const timeText = zone.querySelector('.timer-text');
+      const label = zone.querySelector('.timer-label');
+      const pauseBtn = zone.querySelector('.timer-pause-btn');
+
+      if (progressCircle) progressCircle.style.strokeDashoffset = 283 - (283 * percent / 100);
+      if (timeText) timeText.textContent = Timer.formatTime(data.remaining);
+      if (label) label.textContent = data.paused ? 'En pause' : 'Pause en cours';
+      if (pauseBtn) {
+        pauseBtn.textContent = data.paused ? 'Reprendre' : 'Pause';
+        pauseBtn.className = `btn btn-sm timer-pause-btn ${data.paused ? 'btn-success' : 'btn-warning'}`;
+      }
+      return;
+    }
+
+    // Première création du timer
     zone.innerHTML = `
       <div class="timer-display">
         <div class="timer-circle">
@@ -504,7 +524,7 @@ const UI = (() => {
         </div>
         <div class="timer-label">${data.paused ? 'En pause' : 'Pause en cours'}</div>
         <div class="timer-actions">
-          <button class="btn btn-sm ${data.paused ? 'btn-success' : 'btn-warning'}"
+          <button class="btn btn-sm timer-pause-btn ${data.paused ? 'btn-success' : 'btn-warning'}"
                   onclick="App.toggleTimer()">
             ${data.paused ? 'Reprendre' : 'Pause'}
           </button>
