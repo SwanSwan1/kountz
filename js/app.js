@@ -3,7 +3,7 @@
  * Gère la navigation (SPA), les événements et la logique principale
  */
 
-const APP_VERSION = '1.5';
+const APP_VERSION = '1.6';
 
 const App = (() => {
   // État local de l'application
@@ -14,6 +14,7 @@ const App = (() => {
   // État de l'exercice minuté en cours
   let timedState = null;  // { phase, rep, setIndex, countdown, holdTotal, releaseTotal, totalReps, intervalId }
   let timedObjectiveId = null;
+  let timedVibrationEnabled = true;
 
   /**
    * Arrête l'exercice minuté en cours (clear interval + reset état)
@@ -501,11 +502,20 @@ const App = (() => {
       intervalId: null
     };
 
+    // Lire l'état du toggle vibration
+    const vibCheckbox = document.getElementById('timedVibration');
+    timedVibrationEnabled = vibCheckbox ? vibCheckbox.checked : true;
+
     // Masque le bouton démarrer, affiche les boutons de contrôle
     const startBtn = document.getElementById('timedStartBtn');
     const runningActions = document.getElementById('timedRunningActions');
     if (startBtn) startBtn.style.display = 'none';
     if (runningActions) runningActions.style.display = 'block';
+
+    // Vibration initiale = contractez
+    if (timedVibrationEnabled && 'vibrate' in navigator) {
+      navigator.vibrate(150);
+    }
 
     // Premier affichage immédiat
     UI.updateTimedExerciseDisplay(timedState);
@@ -524,21 +534,28 @@ const App = (() => {
 
     if (timedState.countdown <= 0) {
       if (timedState.phase === 'hold') {
-        // Passe au relâchement
         timedState.phase = 'release';
         timedState.countdown = timedState.releaseTotal;
+        // Double vibration = relâchez
+        if (timedVibrationEnabled && 'vibrate' in navigator) {
+          navigator.vibrate([80, 60, 80]);
+        }
       } else if (timedState.phase === 'release') {
-        // Fin d'une répétition
         timedState.rep++;
         if (timedState.rep >= timedState.totalReps) {
-          // Série terminée
           timedState.phase = 'done';
+          if (timedVibrationEnabled && 'vibrate' in navigator) {
+            navigator.vibrate([200, 100, 200, 100, 200]);
+          }
           completeTimedSet(timedObjectiveId);
           return;
         }
-        // Prochaine répétition
         timedState.phase = 'hold';
         timedState.countdown = timedState.holdTotal;
+        // Simple vibration = contractez
+        if (timedVibrationEnabled && 'vibrate' in navigator) {
+          navigator.vibrate(150);
+        }
       }
     }
 
@@ -548,17 +565,35 @@ const App = (() => {
   /**
    * Met en pause / reprend l'exercice minuté
    */
+  /**
+   * Active/désactive les vibrations haptiques pendant l'exercice
+   */
+  function toggleTimedVibration() {
+    const checkbox = document.getElementById('timedVibration');
+    timedVibrationEnabled = checkbox ? checkbox.checked : !timedVibrationEnabled;
+  }
+
   function pauseTimedExercise() {
     if (!timedState) return;
 
     timedState.paused = !timedState.paused;
 
-    // Met à jour le bouton pause
     const phaseEl = document.getElementById('timedPhase');
-    if (timedState.paused && phaseEl) {
-      phaseEl.textContent = 'EN PAUSE';
+    const pauseBtn = document.getElementById('timedPauseBtn');
+
+    if (timedState.paused) {
+      if (phaseEl) phaseEl.textContent = 'EN PAUSE';
+      if (pauseBtn) {
+        pauseBtn.textContent = 'Reprendre';
+        pauseBtn.classList.remove('btn-warning');
+        pauseBtn.classList.add('btn-success');
+      }
     } else {
-      // Reprend - le prochain tick mettra à jour l'affichage
+      if (pauseBtn) {
+        pauseBtn.textContent = 'Pause';
+        pauseBtn.classList.remove('btn-success');
+        pauseBtn.classList.add('btn-warning');
+      }
     }
   }
 
@@ -843,6 +878,7 @@ const App = (() => {
     addProgressionRule,
     removeProgressionRule,
     startTimedSet,
+    toggleTimedVibration,
     pauseTimedExercise,
     skipTimedSet,
     completeTimedSet,

@@ -1313,6 +1313,14 @@ const UI = (() => {
             </div>
           </div>
 
+          <div class="timed-option" style="margin-bottom:12px">
+            <label class="toggle-label">
+              <input type="checkbox" id="timedVibration" checked onchange="App.toggleTimedVibration()">
+              <span>Vibrations haptiques</span>
+              <span class="text-muted text-sm">(sans regarder l'écran)</span>
+            </label>
+          </div>
+
           <div class="timed-actions" id="timedActions">
             <button class="btn btn-lg btn-success btn-block" id="timedStartBtn"
                     onclick="App.startTimedSet('${objectiveId}')">
@@ -1320,7 +1328,7 @@ const UI = (() => {
             </button>
             <div id="timedRunningActions" style="display:none">
               <div style="display:flex;gap:12px;justify-content:center">
-                <button class="btn btn-warning" onclick="App.pauseTimedExercise()">Pause</button>
+                <button class="btn btn-warning" id="timedPauseBtn" onclick="App.pauseTimedExercise()">Pause</button>
                 <button class="btn btn-danger-light" onclick="App.skipTimedSet()">Passer cette série</button>
               </div>
             </div>
