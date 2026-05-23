@@ -3,7 +3,7 @@
  * Gère la navigation (SPA), les événements et la logique principale
  */
 
-const APP_VERSION = '1.9';
+const APP_VERSION = '2.0';
 const PUSH_SERVER = 'https://kountz-push.swanny-l.workers.dev';
 const VAPID_PUBLIC_KEY = 'BLAl55h_79ERizIMq14zWxhuZCu3Iw3hyISKGkX9sWeSU7uSzWAJ40qNFFgXyIsiOnIv7xZfy0d53LkdDZJQJTQ';
 

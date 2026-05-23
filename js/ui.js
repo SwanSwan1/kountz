@@ -1343,8 +1343,9 @@ const UI = (() => {
 
           <div class="timed-actions" id="timedActions">
             <button class="btn btn-lg btn-success btn-block" id="timedStartBtn"
-                    onclick="App.startTimedSet('${objectiveId}')">
-              Démarrer la série
+                    onclick="App.startTimedSet('${objectiveId}')"
+                    ${Timer.isRunning() ? 'style="display:none"' : ''}>
+              ${Timer.isRunning() ? 'Pause en cours...' : 'Démarrer la série'}
             </button>
             <div id="timedRunningActions" style="display:none">
               <div style="display:flex;gap:12px;justify-content:center">
