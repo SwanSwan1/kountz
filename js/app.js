@@ -3,7 +3,7 @@
  * Gère la navigation (SPA), les événements et la logique principale
  */
 
-const APP_VERSION = '2.3';
+const APP_VERSION = '2.4';
 const PUSH_SERVER = 'https://kountz-push.swanny-l.workers.dev';
 const VAPID_PUBLIC_KEY = 'BLAl55h_79ERizIMq14zWxhuZCu3Iw3hyISKGkX9sWeSU7uSzWAJ40qNFFgXyIsiOnIv7xZfy0d53LkdDZJQJTQ';
 
@@ -18,6 +18,11 @@ const App = (() => {
   let timedObjectiveId = null;
   let timedVibrationEnabled = true;
 
+  // État de la routine multi-segments en cours
+  let routineState = null;  // { segments, segIndex, setIndex, phase, rep, countdown, total, paused, intervalId }
+  let routineObjectiveId = null;
+  let routineVibrationEnabled = true;
+
   /**
    * Arrête l'exercice minuté en cours (clear interval + reset état)
    */
@@ -26,6 +31,16 @@ const App = (() => {
       clearInterval(timedState.intervalId);
     }
     timedState = null;
+  }
+
+  /**
+   * Arrête la routine en cours (clear interval + reset état)
+   */
+  function stopRoutine() {
+    if (routineState && routineState.intervalId) {
+      clearInterval(routineState.intervalId);
+    }
+    routineState = null;
   }
 
   /**
@@ -44,8 +59,9 @@ const App = (() => {
     // Quand la page redevient visible, recalcule le timer et rafraîchit la vue session
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible' && currentView === 'session' && activeObjectiveId) {
-        // Si un exercice minuté est en cours, ne pas re-render (le tick continue)
+        // Si un exercice minuté ou une routine est en cours, ne pas re-render (le tick continue)
         if (timedState && timedState.intervalId && !timedState.paused) return;
+        if (routineState && routineState.intervalId && !routineState.paused) return;
         UI.renderSession(activeObjectiveId);
       }
     });
@@ -103,9 +119,12 @@ const App = (() => {
    */
   function navigateInternal(view, param, pushState) {
     // Le timer de pause continue en arrière-plan même si on change de vue
-    // Mais on arrête l'exercice minuté si on quitte la session
+    // Mais on arrête l'exercice minuté / la routine si on quitte la session
     if (timedState && timedState.intervalId && (view !== 'session' || param !== timedObjectiveId)) {
       stopTimedExercise();
+    }
+    if (routineState && routineState.intervalId && (view !== 'session' || param !== routineObjectiveId)) {
+      stopRoutine();
     }
 
     currentView = view;
@@ -130,6 +149,8 @@ const App = (() => {
         const editObj = Store.getObjective(param);
         if (editObj && editObj.type === 'timed') {
           UI.renderTimedObjectiveForm(null, param);
+        } else if (editObj && editObj.type === 'routine') {
+          UI.renderRoutineObjectiveForm(param);
         } else {
           UI.renderObjectiveForm(param);
         }
@@ -325,20 +346,36 @@ const App = (() => {
     const preset = Store.getPreset(presetId);
     if (!preset) return;
 
-    const obj = {
-      name: preset.name,
-      type: 'timed',
-      holdSeconds: preset.holdSeconds,
-      releaseSeconds: preset.releaseSeconds,
-      repsPerSet: preset.repsPerSet,
-      setsPerDay: preset.setsPerDay,
-      restMinutes: preset.restMinutes,
-      durationDays: preset.durationDays || null,
-      startDate: Store.today(),
-      progressionRules: preset.progressionRules || [],
-      tips: preset.tips || [],
-      active: true
-    };
+    let obj;
+    if (preset.type === 'routine') {
+      obj = {
+        name: preset.name,
+        type: 'routine',
+        segments: (preset.segments || []).map(s => ({ ...s })),
+        setsPerDay: preset.setsPerDay || 1,
+        restMinutes: preset.restMinutes || 0,
+        durationDays: preset.durationDays || null,
+        startDate: Store.today(),
+        progressionRules: preset.progressionRules || [],
+        tips: preset.tips || [],
+        active: true
+      };
+    } else {
+      obj = {
+        name: preset.name,
+        type: 'timed',
+        holdSeconds: preset.holdSeconds,
+        releaseSeconds: preset.releaseSeconds,
+        repsPerSet: preset.repsPerSet,
+        setsPerDay: preset.setsPerDay,
+        restMinutes: preset.restMinutes,
+        durationDays: preset.durationDays || null,
+        startDate: Store.today(),
+        progressionRules: preset.progressionRules || [],
+        tips: preset.tips || [],
+        active: true
+      };
+    }
 
     Store.saveObjective(obj);
     navigate('home');
@@ -677,6 +714,280 @@ const App = (() => {
     UI.renderTimedSession(objectiveId);
   }
 
+  // --- Actions routine multi-segments ---
+
+  /**
+   * Initialise l'état pour le segment courant de la routine
+   */
+  function initRoutineSegment() {
+    const seg = routineState.segments[routineState.segIndex];
+    routineState.rep = 0;
+    if (seg.kind === 'breathe') {
+      routineState.phase = 'breathe';
+      routineState.countdown = seg.durationSeconds * 10;
+      routineState.total = seg.durationSeconds * 10;
+    } else {
+      // contract : commence par une contraction
+      routineState.phase = 'hold';
+      routineState.countdown = seg.holdSeconds * 10;
+      routineState.total = seg.holdSeconds * 10;
+    }
+  }
+
+  /**
+   * Démarre une séance de routine (la prochaine séance non faite du jour)
+   */
+  function startRoutineSet(objectiveId) {
+    // Arrête le timer de pause s'il tourne encore
+    if (Timer.isRunning()) {
+      Timer.stop();
+      UI.updateTimerDisplay(null);
+    }
+
+    const obj = Store.getObjective(objectiveId);
+    if (!obj) return;
+
+    const session = Store.getTodaySession(objectiveId);
+    if (!session) return;
+
+    const nextIdx = Objectives.getNextSetIndex(session);
+    if (nextIdx === -1) return;
+
+    const params = Objectives.getRoutineParams(obj);
+    routineObjectiveId = objectiveId;
+
+    routineState = {
+      segments: params.segments,
+      segIndex: 0,
+      setIndex: nextIdx,
+      paused: false,
+      intervalId: null
+    };
+    initRoutineSegment();
+
+    const vibCheckbox = document.getElementById('routineVibration');
+    routineVibrationEnabled = vibCheckbox ? vibCheckbox.checked : true;
+
+    const startBtn = document.getElementById('routineStartBtn');
+    const runningActions = document.getElementById('routineRunningActions');
+    if (startBtn) startBtn.style.display = 'none';
+    if (runningActions) runningActions.style.display = 'block';
+
+    // Vibration de démarrage
+    if (routineVibrationEnabled && 'vibrate' in navigator) {
+      navigator.vibrate(120);
+    }
+
+    UI.updateRoutineDisplay(routineState);
+    routineState.intervalId = setInterval(() => routineTick(), 100);
+  }
+
+  /**
+   * Passe au segment suivant de la routine (ou termine la séance)
+   */
+  function advanceRoutineSegment() {
+    routineState.segIndex++;
+    if (routineState.segIndex >= routineState.segments.length) {
+      // Séance terminée
+      if (routineVibrationEnabled && 'vibrate' in navigator) {
+        navigator.vibrate([200, 100, 200, 100, 200]);
+      }
+      completeRoutineSet(routineObjectiveId);
+      return;
+    }
+    initRoutineSegment();
+    // Vibration de transition selon le type du nouveau segment
+    if (routineVibrationEnabled && 'vibrate' in navigator) {
+      const seg = routineState.segments[routineState.segIndex];
+      navigator.vibrate(seg.kind === 'contract' ? 150 : [60, 40, 60]);
+    }
+  }
+
+  /**
+   * Tick de la routine (appelé toutes les 100ms)
+   */
+  function routineTick() {
+    if (!routineState || routineState.paused) return;
+
+    routineState.countdown--;
+
+    if (routineState.countdown <= 0) {
+      const seg = routineState.segments[routineState.segIndex];
+
+      if (seg.kind === 'breathe') {
+        advanceRoutineSegment();
+        if (!routineState) return;
+      } else if (routineState.phase === 'hold') {
+        routineState.phase = 'release';
+        routineState.countdown = seg.releaseSeconds * 10;
+        routineState.total = seg.releaseSeconds * 10;
+        if (routineVibrationEnabled && 'vibrate' in navigator) {
+          navigator.vibrate([80, 60, 80]);
+        }
+      } else {
+        // fin d'un relâchement
+        routineState.rep++;
+        if (routineState.rep >= seg.reps) {
+          advanceRoutineSegment();
+          if (!routineState) return;
+        } else {
+          routineState.phase = 'hold';
+          routineState.countdown = seg.holdSeconds * 10;
+          routineState.total = seg.holdSeconds * 10;
+          if (routineVibrationEnabled && 'vibrate' in navigator) {
+            navigator.vibrate(150);
+          }
+        }
+      }
+    }
+
+    UI.updateRoutineDisplay(routineState);
+  }
+
+  /**
+   * Active/désactive les vibrations de la routine
+   */
+  function toggleRoutineVibration() {
+    const checkbox = document.getElementById('routineVibration');
+    routineVibrationEnabled = checkbox ? checkbox.checked : !routineVibrationEnabled;
+  }
+
+  /**
+   * Met en pause / reprend la routine
+   */
+  function pauseRoutine() {
+    if (!routineState) return;
+
+    routineState.paused = !routineState.paused;
+
+    const phaseEl = document.getElementById('routinePhase');
+    const pauseBtn = document.getElementById('routinePauseBtn');
+
+    if (routineState.paused) {
+      if (phaseEl) phaseEl.textContent = 'EN PAUSE';
+      if (pauseBtn) {
+        pauseBtn.textContent = 'Reprendre';
+        pauseBtn.classList.remove('btn-warning');
+        pauseBtn.classList.add('btn-success');
+      }
+    } else {
+      if (pauseBtn) {
+        pauseBtn.textContent = 'Pause';
+        pauseBtn.classList.remove('btn-success');
+        pauseBtn.classList.add('btn-warning');
+      }
+    }
+  }
+
+  /**
+   * Passe la séance de routine en cours (marquée comme faite sans la terminer)
+   */
+  function skipRoutineSet() {
+    stopRoutine();
+
+    if (routineObjectiveId) {
+      const session = Store.getTodaySession(routineObjectiveId);
+      if (session) {
+        const nextIdx = Objectives.getNextSetIndex(session);
+        if (nextIdx !== -1) {
+          Objectives.completeSet(session.id, nextIdx, 0);
+        }
+      }
+      UI.renderRoutineSession(routineObjectiveId);
+    }
+  }
+
+  /**
+   * Termine la séance de routine en cours et lance le timer de pause si besoin
+   */
+  function completeRoutineSet(objectiveId) {
+    const savedState = routineState;
+    stopRoutine();
+
+    const session = Store.getTodaySession(objectiveId);
+    if (!session) return;
+
+    const setIndex = savedState ? savedState.setIndex : Objectives.getNextSetIndex(session);
+    Objectives.completeSet(session.id, setIndex, 1);
+
+    if ('vibrate' in navigator) {
+      navigator.vibrate([100, 50, 100]);
+    }
+
+    // Lance le timer de pause si d'autres séances restent et qu'une pause est configurée
+    const obj = Store.getObjective(objectiveId);
+    const updatedSession = Store.getTodaySession(objectiveId);
+    const newNextIdx = Objectives.getNextSetIndex(updatedSession);
+
+    if (newNextIdx !== -1 && obj && obj.restMinutes > 0) {
+      Timer.start(
+        obj.restMinutes,
+        (data) => UI.updateTimerDisplay(data),
+        () => {
+          UI.updateTimerDisplay(null);
+          if (currentView === 'session' && currentParam === objectiveId) {
+            UI.renderRoutineSession(objectiveId);
+          }
+        }
+      );
+    }
+
+    UI.renderRoutineSession(objectiveId);
+  }
+
+  /**
+   * Sauvegarde les modifications d'une routine (formulaire d'édition minimal)
+   */
+  function saveRoutineObjective(event) {
+    event.preventDefault();
+    const form = event.target;
+    const data = new FormData(form);
+
+    const id = data.get('id');
+    const existing = id ? Store.getObjective(id) : null;
+    if (!existing) { navigate('home'); return; }
+
+    const name = data.get('name').trim();
+    if (name) existing.name = name;
+    existing.setsPerDay = data.get('setsPerDay') ? parseInt(data.get('setsPerDay')) : (existing.setsPerDay || 1);
+    existing.restMinutes = data.get('restMinutes') ? parseInt(data.get('restMinutes')) : 0;
+    existing.startTime = data.get('startTime') || null;
+    existing.durationDays = data.get('durationDays') ? parseInt(data.get('durationDays')) : null;
+
+    Store.saveObjective(existing);
+    navigate('home');
+  }
+
+  // --- Actions archivage ---
+
+  /**
+   * Archive un objectif (le retire de l'accueil sans perdre ses stats)
+   */
+  function archiveObjective(id) {
+    Store.archiveObjective(id);
+    navigate('home');
+  }
+
+  /**
+   * Réactive un objectif archivé
+   */
+  function unarchiveObjective(id) {
+    Store.unarchiveObjective(id);
+    navigate('home');
+  }
+
+  /**
+   * Affiche / masque la liste des objectifs archivés sur l'accueil
+   */
+  function toggleArchived() {
+    const list = document.getElementById('archivedList');
+    const chevron = document.getElementById('archivedChevron');
+    if (!list) return;
+    const isHidden = list.style.display === 'none';
+    list.style.display = isHidden ? 'block' : 'none';
+    if (chevron) chevron.textContent = isHidden ? '▾' : '▸';
+  }
+
   // --- Actions compteurs ---
 
   /**
@@ -863,8 +1174,9 @@ const App = (() => {
       }
 
       const reminderTarget = Objectives.getProgress(obj, null).target;
-      const isTimed = obj.type === 'timed';
-      const target = isTimed ? `${reminderTarget} séries` : `${reminderTarget} ${obj.name.toLowerCase()}`;
+      const target = obj.type === 'timed' ? `${reminderTarget} séries`
+        : obj.type === 'routine' ? `${reminderTarget} séance${reminderTarget > 1 ? 's' : ''}`
+        : `${reminderTarget} ${obj.name.toLowerCase()}`;
       reminders.push({
         id: obj.id,
         time: reminderDate.toISOString(),
@@ -903,8 +1215,9 @@ const App = (() => {
 
         if (reminderDate > now) {
           const reminderTarget = Objectives.getProgress(obj, null).target;
-          const isTimed = obj.type === 'timed';
-          const target = isTimed ? `${reminderTarget} séries` : `${reminderTarget} ${obj.name.toLowerCase()}`;
+          const target = obj.type === 'timed' ? `${reminderTarget} séries`
+            : obj.type === 'routine' ? `${reminderTarget} séance${reminderTarget > 1 ? 's' : ''}`
+            : `${reminderTarget} ${obj.name.toLowerCase()}`;
           reminders.push({
             id: obj.id,
             time: reminderDate.getTime(),
@@ -989,6 +1302,14 @@ const App = (() => {
     pauseTimedExercise,
     skipTimedSet,
     completeTimedSet,
+    startRoutineSet,
+    toggleRoutineVibration,
+    pauseRoutine,
+    skipRoutineSet,
+    saveRoutineObjective,
+    archiveObjective,
+    unarchiveObjective,
+    toggleArchived,
     saveCounter,
     counterIncrement,
     counterDecrement,

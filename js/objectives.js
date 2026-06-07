@@ -219,7 +219,7 @@ const Objectives = (() => {
    * @returns {{ done: number, target: number }}
    */
   function getProgress(obj, session) {
-    if (obj.type === 'timed') {
+    if (obj.type === 'timed' || obj.type === 'routine') {
       const setsTotal = obj.setsPerDay || Store.DEFAULT_SETS_PER_DAY;
       const setsDone = session ? session.sets.filter(s => s.actual !== null).length : 0;
       return { done: setsDone, target: setsTotal };
@@ -265,6 +265,72 @@ const Objectives = (() => {
     }
 
     return { holdSeconds, releaseSeconds, repsPerSet, setsPerDay, progressionNote };
+  }
+
+  /**
+   * Résout les paramètres d'une routine multi-segments en appliquant la progression.
+   * La progression (longHoldSeconds) ajuste le maintien du premier segment 'contract'
+   * (les contractions longues).
+   * @returns {object} { segments, setsPerDay, progressionNote }
+   */
+  function getRoutineParams(obj) {
+    // Clone profond léger des segments pour ne pas muter l'objectif stocké
+    const segments = (obj.segments || []).map(s => ({ ...s }));
+    let progressionNote = null;
+
+    if (obj.progressionRules && obj.progressionRules.length > 0 && obj.startDate) {
+      const startDate = new Date(obj.startDate);
+      const todayDate = new Date(Store.today());
+      const daysSinceStart = Math.floor((todayDate - startDate) / (1000 * 60 * 60 * 24));
+
+      const sortedRules = [...obj.progressionRules].sort((a, b) => b.afterDays - a.afterDays);
+      for (const rule of sortedRules) {
+        if (daysSinceStart >= rule.afterDays) {
+          if (rule.longHoldSeconds !== undefined) {
+            const firstContract = segments.find(s => s.kind === 'contract');
+            if (firstContract) firstContract.holdSeconds = rule.longHoldSeconds;
+          }
+          progressionNote = rule.note || null;
+          break;
+        }
+      }
+    }
+
+    return {
+      segments,
+      setsPerDay: obj.setsPerDay || 1,
+      progressionNote
+    };
+  }
+
+  /**
+   * Crée ou récupère la session du jour pour une routine multi-segments
+   */
+  function getOrCreateRoutineSession(objectiveId) {
+    let session = Store.getTodaySession(objectiveId);
+    if (session) return session;
+
+    const obj = Store.getObjective(objectiveId);
+    if (!obj) return null;
+
+    const params = getRoutineParams(obj);
+
+    // Une "série" = une séance complète de la routine
+    const sets = [];
+    for (let i = 0; i < params.setsPerDay; i++) {
+      sets.push({ planned: 1, actual: null, completedAt: null });
+    }
+
+    session = {
+      objectiveId,
+      date: Store.today(),
+      type: 'routine',
+      sets,
+      totalDone: 0,
+      completed: false
+    };
+
+    return Store.saveSession(session);
   }
 
   /**
@@ -322,6 +388,9 @@ const Objectives = (() => {
     if (obj.type === 'timed') {
       return getOrCreateTimedSession(objectiveId);
     }
+    if (obj.type === 'routine') {
+      return getOrCreateRoutineSession(objectiveId);
+    }
 
     // Type "count" par défaut (comportement existant)
     const distribution = calculateDistribution(
@@ -371,8 +440,8 @@ const Objectives = (() => {
     // Vérifie si terminé
     const obj = Store.getObjective(session.objectiveId);
     const allDone = session.sets.every(s => s.actual !== null);
-    if (obj && obj.type === 'timed') {
-      // Pour les exercices minutés, terminé quand toutes les séries sont faites
+    if (obj && (obj.type === 'timed' || obj.type === 'routine')) {
+      // Exercices minutés et routines : terminé quand toutes les séances sont faites
       session.completed = allDone;
     } else {
       // Pour les objectifs de comptage, terminé quand tout fait ou objectif atteint
@@ -408,8 +477,10 @@ const Objectives = (() => {
     checkTimeRange,
     getProgress,
     getTimedParams,
+    getRoutineParams,
     getOrCreateTodaySession,
     getOrCreateTimedSession,
+    getOrCreateRoutineSession,
     completeSet,
     getNextSetIndex,
     getDistributionLabel

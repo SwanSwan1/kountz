@@ -75,7 +75,40 @@ const Store = (() => {
   }
 
   function getActiveObjectives() {
-    return loadAll().objectives.filter(o => o.active && !isChallengeExpired(o));
+    return loadAll().objectives.filter(o => o.active && !o.archived && !isChallengeExpired(o));
+  }
+
+  /**
+   * Retourne les objectifs archivés (masqués de l'accueil, stats conservées)
+   */
+  function getArchivedObjectives() {
+    return loadAll().objectives.filter(o => o.archived);
+  }
+
+  /**
+   * Archive un objectif (le retire de la liste active sans perdre ses données)
+   */
+  function archiveObjective(id) {
+    const data = loadAll();
+    const obj = data.objectives.find(o => o.id === id);
+    if (obj) {
+      obj.archived = true;
+      saveAll(data);
+    }
+    return obj;
+  }
+
+  /**
+   * Réactive un objectif archivé (le remet dans la liste active)
+   */
+  function unarchiveObjective(id) {
+    const data = loadAll();
+    const obj = data.objectives.find(o => o.id === id);
+    if (obj) {
+      obj.archived = false;
+      saveAll(data);
+    }
+    return obj;
   }
 
   /**
@@ -447,6 +480,38 @@ const Store = (() => {
         'Respirez normalement tout au long de l\'exercice',
         'Ajoutez une contraction maximale de 2s en fin de maintien'
       ]
+    },
+    {
+      id: 'kegel-complet-homme',
+      name: 'Kegel complet homme',
+      description: 'Routine complète guidée : respiration, contractions longues puis rapides, reverse Kegel. 12 semaines.',
+      icon: '🧘',
+      type: 'routine',
+      setsPerDay: 1,
+      restMinutes: 0,
+      durationDays: 84,
+      // Séquence jouée dans l'ordre lors d'une séance
+      segments: [
+        { kind: 'breathe', label: 'Respiration calme', instruction: 'Respirez calmement', durationSeconds: 30 },
+        { kind: 'contract', label: 'Contractions longues', reps: 10, holdSeconds: 5, releaseSeconds: 5 },
+        { kind: 'contract', label: 'Contractions rapides', reps: 10, holdSeconds: 1, releaseSeconds: 1 },
+        { kind: 'breathe', label: 'Reverse Kegel', instruction: 'Inspirez par le ventre, laissez le périnée se détendre vers le bas', durationSeconds: 90 }
+      ],
+      // La progression ajuste le maintien des contractions LONGUES (longHoldSeconds)
+      progressionRules: [
+        { afterDays: 0, longHoldSeconds: 4, note: 'Semaine 1-2 : contractions longues de 3 à 5 s' },
+        { afterDays: 14, longHoldSeconds: 6, note: 'Semaine 3-6 : contractions longues de 5 à 8 s' },
+        { afterDays: 42, longHoldSeconds: 9, note: 'Semaine 7-12 : contractions longues de 8 à 10 s' }
+      ],
+      tips: [
+        'Ne contractez pas les fesses, les abdos ou les cuisses',
+        'Ne bloquez pas la respiration',
+        'Ne forcez pas',
+        'Relâchez complètement après chaque contraction',
+        'Arrêtez ou réduisez si douleur, tension pelvienne, gêne urinaire ou gêne à l\'éjaculation',
+        'N\'augmentez pas le maintien si le relâchement devient difficile',
+        'Résultats réalistes : 2-3 sem. → meilleure conscience du muscle ; 6-8 sem. → premiers effets sur le contrôle ; 8-12 sem. → période où juger sérieusement ; 3-6 mois → vrai gain de force et de stabilité'
+      ]
     }
   ];
 
@@ -476,6 +541,9 @@ const Store = (() => {
     getObjective,
     saveObjective,
     deleteObjective,
+    getArchivedObjectives,
+    archiveObjective,
+    unarchiveObjective,
     getSessions,
     getSessionsForObjective,
     getTodaySession,

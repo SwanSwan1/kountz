@@ -49,6 +49,7 @@ const UI = (() => {
         const isComplete = session && session.completed;
         const challenge = Store.getChallengeInfo(obj.id);
         const isTimed = obj.type === 'timed';
+        const isRoutine = obj.type === 'routine';
 
         // Calcul de la progression selon le type
         const progress = Objectives.getProgress(obj, session);
@@ -56,6 +57,10 @@ const UI = (() => {
         let progressText;
         if (isTimed) {
           progressText = `<span class="progress-value">Séries : ${progress.done}</span>
+            <span class="progress-sep">/</span>
+            <span class="progress-target">${progress.target} aujourd'hui</span>`;
+        } else if (isRoutine) {
+          progressText = `<span class="progress-value">Séance${progress.target > 1 ? 's' : ''} : ${progress.done}</span>
             <span class="progress-sep">/</span>
             <span class="progress-target">${progress.target} aujourd'hui</span>`;
         } else {
@@ -102,6 +107,31 @@ const UI = (() => {
       });
     }
     html += `</section>`;
+
+    // Section objectifs archivés (repliable, masquée par défaut)
+    const archived = Store.getArchivedObjectives();
+    if (archived.length > 0) {
+      html += `<section class="section">
+        <div class="section-header" onclick="App.toggleArchived()" style="cursor:pointer">
+          <h2><span id="archivedChevron">&#9656;</span> Archivés (${archived.length})</h2>
+        </div>
+        <div id="archivedList" style="display:none">`;
+      archived.forEach(obj => {
+        html += `
+          <div class="card card-objective" style="opacity:.65">
+            <div class="card-content">
+              <div class="card-title">${escHtml(obj.name)}</div>
+              <div class="card-progress-text text-muted text-sm">Archivé — stats conservées</div>
+              <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+                <button class="btn btn-sm btn-success" onclick="App.unarchiveObjective('${obj.id}')">Réactiver</button>
+                <button class="btn btn-sm btn-outline" onclick="App.navigate('statsObjective', '${obj.id}')">Stats</button>
+                <button class="btn btn-sm btn-danger-light" onclick="App.deleteObjective('${obj.id}')">Supprimer</button>
+              </div>
+            </div>
+          </div>`;
+      });
+      html += `</div></section>`;
+    }
 
     // Section compteurs
     html += `<section class="section">
@@ -252,6 +282,7 @@ const UI = (() => {
         <div id="preview" class="preview-box"></div>
 
         <div class="form-actions">
+          ${isEdit ? `<button type="button" class="btn btn-outline" onclick="App.archiveObjective('${obj.id}')">Archiver</button>` : ''}
           ${isEdit ? `<button type="button" class="btn btn-danger" onclick="App.deleteObjective('${obj.id}')">Supprimer</button>` : ''}
           <button type="submit" class="btn btn-primary btn-block">
             ${isEdit ? 'Enregistrer' : 'Créer l\'objectif'}
@@ -334,6 +365,12 @@ const UI = (() => {
     // Route vers l'écran minuté si type timed
     if (obj.type === 'timed') {
       renderTimedSession(objectiveId);
+      return;
+    }
+
+    // Route vers l'écran de routine multi-segments
+    if (obj.type === 'routine') {
+      renderRoutineSession(objectiveId);
       return;
     }
 
@@ -1148,6 +1185,7 @@ const UI = (() => {
 
     html += `
         <div class="form-actions">
+          ${isEdit ? `<button type="button" class="btn btn-outline" onclick="App.archiveObjective('${obj.id}')">Archiver</button>` : ''}
           ${isEdit ? `<button type="button" class="btn btn-danger" onclick="App.deleteObjective('${obj.id}')">Supprimer</button>` : ''}
           <button type="submit" class="btn btn-primary btn-block">
             ${isEdit ? 'Enregistrer' : 'Créer l\'exercice'}
@@ -1486,6 +1524,376 @@ const UI = (() => {
   }
 
   /**
+   * Écran de séance pour une routine multi-segments
+   */
+  function renderRoutineSession(objectiveId) {
+    const obj = Store.getObjective(objectiveId);
+    if (!obj) {
+      renderHome();
+      return;
+    }
+
+    const session = Objectives.getOrCreateTodaySession(objectiveId);
+    const params = Objectives.getRoutineParams(obj);
+    const nextIdx = Objectives.getNextSetIndex(session);
+    const allDone = nextIdx === -1;
+    const setsDone = session.sets.filter(s => s.actual !== null).length;
+    const setsTotal = session.sets.length;
+    const percent = Math.min(100, Math.round((setsDone / setsTotal) * 100));
+
+    let html = `
+      <header class="header">
+        <button class="btn-icon" onclick="App.navigate('home')" aria-label="Retour">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M15 18l-6-6 6-6"/>
+          </svg>
+        </button>
+        <h1>${escHtml(obj.name)}</h1>
+        <button class="btn-icon" onclick="App.navigate('editObjective', '${obj.id}')" aria-label="Modifier">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M17 3a2.83 2.83 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>
+          </svg>
+        </button>
+      </header>
+    `;
+
+    // Bandeau défi si applicable
+    const challenge = Store.getChallengeInfo(objectiveId);
+    if (challenge) {
+      html += `
+        <div class="challenge-banner">
+          <div class="challenge-banner-title">Défi : Jour ${challenge.currentDay}/${challenge.totalDays}</div>
+          <div class="challenge-banner-stats">
+            <span class="challenge-stat">${challenge.daysCompleted} <small>réussis</small></span>
+            ${challenge.daysMissed > 0 ? `<span class="challenge-stat text-warning">${challenge.daysMissed} <small>manqués</small></span>` : ''}
+            <span class="challenge-stat">${challenge.daysRemaining} <small>restants</small></span>
+            <span class="challenge-stat">${challenge.completionRate}%</span>
+          </div>
+          <div class="progress-bar progress-bar-sm">
+            <div class="progress-fill fill-info" style="width: ${Math.round((challenge.currentDay / challenge.totalDays) * 100)}%"></div>
+          </div>
+        </div>
+      `;
+    }
+
+    // Note de progression si applicable
+    if (params.progressionNote) {
+      html += `
+        <div class="alert alert-warning" style="margin-bottom:16px">
+          Progression : ${escHtml(params.progressionNote)}
+        </div>
+      `;
+    }
+
+    // Progression globale (séances)
+    html += `
+      <div class="session-progress">
+        <div class="session-progress-text">
+          <span class="big-number">${setsDone}</span>
+          <span class="big-sep">/</span>
+          <span class="big-target">${setsTotal} séance${setsTotal > 1 ? 's' : ''}</span>
+        </div>
+        <div class="progress-bar progress-bar-lg">
+          <div class="progress-fill ${session.completed ? 'fill-success' : ''}"
+               style="width: ${percent}%"></div>
+        </div>
+        <div class="session-percent">${percent}%</div>
+      </div>
+    `;
+
+    // Aperçu de la routine (les segments dans l'ordre)
+    html += `<div class="routine-plan">`;
+    params.segments.forEach((seg, i) => {
+      let detail;
+      if (seg.kind === 'breathe') {
+        detail = `${seg.durationSeconds}s`;
+      } else {
+        detail = `${seg.reps} × ${seg.holdSeconds}s/${seg.releaseSeconds}s`;
+      }
+      html += `
+        <div class="routine-plan-step">
+          <span class="routine-plan-num">${i + 1}</span>
+          <span class="routine-plan-label">${escHtml(seg.label)}</span>
+          <span class="routine-plan-detail text-muted">${detail}</span>
+        </div>`;
+    });
+    html += `</div>`;
+
+    // Zone timer (pause entre séances) - masquée si terminé
+    if (allDone || session.completed) {
+      if (Timer.isRunning()) {
+        Timer.stop();
+      }
+    }
+    html += `<div id="timerZone" class="timer-zone"></div>`;
+
+    // Zone guidée
+    html += `<div id="routineExerciseZone">`;
+
+    if (allDone || session.completed) {
+      html += `
+        <div class="session-complete">
+          <div class="complete-icon">&#10003;</div>
+          <h2>Routine du jour terminée !</h2>
+          <p>${setsDone} séance${setsDone > 1 ? 's' : ''} de ${escHtml(obj.name).toLowerCase()} aujourd'hui</p>
+        </div>
+      `;
+    } else {
+      html += `
+        <div class="timed-exercise-card">
+          <div class="set-info" id="routineSegInfo">Séance ${nextIdx + 1}/${setsTotal} — prêt à démarrer</div>
+          <div class="timed-rep-info" id="routineRepInfo">${params.segments.length} étapes</div>
+
+          <div class="timed-circle-container" id="routineCircle">
+            <div class="timer-circle timed-circle">
+              <svg viewBox="0 0 100 100" class="timer-svg">
+                <circle cx="50" cy="50" r="45" class="timer-bg"/>
+                <circle cx="50" cy="50" r="45" class="timer-progress timed-progress-ring" id="routineProgressRing"
+                        style="stroke-dashoffset: 283"/>
+              </svg>
+              <div class="timed-circle-text">
+                <div class="timed-phase" id="routinePhase">PRÊT</div>
+                <div class="timed-countdown" id="routineCountdown">--</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="timed-set-progress">
+            <div class="progress-bar">
+              <div class="progress-fill" id="routineSetProgress" style="width:0%"></div>
+            </div>
+          </div>
+
+          <div class="timed-option" style="margin-bottom:12px">
+            <label class="toggle-label">
+              <input type="checkbox" id="routineVibration" checked onchange="App.toggleRoutineVibration()">
+              <span>Vibrations haptiques</span>
+              <span class="text-muted text-sm">(sans regarder l'écran)</span>
+            </label>
+          </div>
+
+          <div class="timed-actions">
+            <button class="btn btn-lg btn-success btn-block" id="routineStartBtn"
+                    onclick="App.startRoutineSet('${objectiveId}')">
+              Démarrer la séance
+            </button>
+            <div id="routineRunningActions" style="display:none">
+              <div style="display:flex;gap:12px;justify-content:center">
+                <button class="btn btn-warning" id="routinePauseBtn" onclick="App.pauseRoutine()">Pause</button>
+                <button class="btn btn-danger-light" onclick="App.skipRoutineSet()">Passer la séance</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    html += `</div>`;
+
+    // Historique des séances faites
+    const completedSets = session.sets.filter(s => s.actual !== null);
+    if (completedSets.length > 0) {
+      html += `
+        <div class="session-history">
+          <h3>Séances complétées</h3>
+          <div class="sets-list">
+      `;
+      session.sets.forEach((s, i) => {
+        if (s.actual !== null) {
+          html += `
+            <div class="set-done">
+              <span class="set-done-num">#${i + 1}</span>
+              <span class="set-done-val">${s.actual > 0 ? 'Faite' : 'Passée'}</span>
+              <span class="set-done-time">${s.completedAt}</span>
+            </div>
+          `;
+        }
+      });
+      html += `</div></div>`;
+    }
+
+    // Conseils (section repliable)
+    if (obj.tips && obj.tips.length > 0) {
+      html += `
+        <details class="tips-details" style="margin-top:16px">
+          <summary class="tips-summary">Conseils &amp; règles importantes</summary>
+          <ul class="tips-list">
+      `;
+      obj.tips.forEach(tip => {
+        html += `<li>${escHtml(tip)}</li>`;
+      });
+      html += `</ul></details>`;
+    }
+
+    // Bouton stats
+    html += `
+      <div class="section" style="margin-top:1rem">
+        <button class="btn btn-block btn-outline" onclick="App.navigate('statsObjective', '${obj.id}')">
+          Voir les statistiques
+        </button>
+      </div>
+    `;
+
+    render(html);
+
+    // Restaure le timer de pause s'il tournait en arrière-plan
+    if (Timer.isRunning()) {
+      Timer.restore(
+        (data) => updateTimerDisplay(data),
+        () => {
+          updateTimerDisplay(null);
+          renderRoutineSession(objectiveId);
+        }
+      );
+    }
+  }
+
+  /**
+   * Met à jour l'affichage de la routine sans re-render complet (appelé par le tick)
+   */
+  function updateRoutineDisplay(state) {
+    const seg = state.segments[state.segIndex];
+    const phaseEl = document.getElementById('routinePhase');
+    const countdownEl = document.getElementById('routineCountdown');
+    const ringEl = document.getElementById('routineProgressRing');
+    const segInfoEl = document.getElementById('routineSegInfo');
+    const repInfoEl = document.getElementById('routineRepInfo');
+    const setProgressEl = document.getElementById('routineSetProgress');
+    const circleContainer = document.getElementById('routineCircle');
+
+    if (!phaseEl || !countdownEl) return;
+
+    // Texte d'étape
+    if (segInfoEl) {
+      segInfoEl.textContent = `Étape ${state.segIndex + 1}/${state.segments.length} · ${seg.label}`;
+    }
+
+    // Phase + style du cercle + sous-titre
+    let segFraction;
+    if (seg.kind === 'breathe') {
+      phaseEl.textContent = 'RESPIREZ';
+      phaseEl.className = 'timed-phase timed-phase-release';
+      if (circleContainer) circleContainer.className = 'timed-circle-container timed-release';
+      countdownEl.textContent = Math.ceil(state.countdown / 10) + 's';
+      if (repInfoEl) repInfoEl.textContent = seg.instruction || 'Relâchez complètement';
+      segFraction = state.total > 0 ? (1 - state.countdown / state.total) : 0;
+    } else {
+      if (state.phase === 'hold') {
+        phaseEl.textContent = 'CONTRACTEZ';
+        phaseEl.className = 'timed-phase timed-phase-hold';
+        if (circleContainer) circleContainer.className = 'timed-circle-container timed-hold';
+      } else {
+        phaseEl.textContent = 'RELÂCHEZ';
+        phaseEl.className = 'timed-phase timed-phase-release';
+        if (circleContainer) circleContainer.className = 'timed-circle-container timed-release';
+      }
+      countdownEl.textContent = (state.countdown / 10).toFixed(1) + 's';
+      if (repInfoEl) repInfoEl.textContent = `Répétition ${state.rep + 1}/${seg.reps}`;
+      const phasesDone = state.rep * 2 + (state.phase === 'release' ? 1 : 0);
+      const phaseProg = state.total > 0 ? (1 - state.countdown / state.total) : 0;
+      segFraction = (phasesDone + phaseProg) / (seg.reps * 2);
+    }
+
+    // Anneau de progression de la phase courante
+    const phaseProgress = state.total > 0 ? (1 - state.countdown / state.total) : 0;
+    if (ringEl) {
+      ringEl.style.strokeDashoffset = 283 - (283 * phaseProgress);
+      ringEl.style.transition = 'none';
+    }
+
+    // Progression globale de la séance (sur l'ensemble des segments)
+    if (setProgressEl) {
+      const overall = ((state.segIndex + segFraction) / state.segments.length) * 100;
+      setProgressEl.style.width = Math.min(100, Math.round(overall)) + '%';
+    }
+  }
+
+  /**
+   * Formulaire d'édition minimal d'une routine (les segments restent figés sur le preset)
+   */
+  function renderRoutineObjectiveForm(existingId) {
+    const obj = Store.getObjective(existingId);
+    if (!obj) {
+      renderHome();
+      return;
+    }
+
+    const name = obj.name || '';
+    const setsPerDay = obj.setsPerDay || 1;
+    const restMinutes = obj.restMinutes || 0;
+    const startTime = obj.startTime || '';
+    const durationDays = obj.durationDays || '';
+
+    let html = `
+      <header class="header">
+        <button class="btn-icon" onclick="App.navigate('session', '${obj.id}')" aria-label="Retour">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M15 18l-6-6 6-6"/>
+          </svg>
+        </button>
+        <h1>Modifier la routine</h1>
+        <div style="width:40px"></div>
+      </header>
+
+      <form id="routineForm" class="form" onsubmit="App.saveRoutineObjective(event)">
+        <input type="hidden" name="id" value="${obj.id}">
+
+        <div class="form-group">
+          <label for="rtName">Nom</label>
+          <input type="text" id="rtName" name="name" value="${escHtml(name)}" required class="input">
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="rtSets">Séances par jour</label>
+            <input type="number" id="rtSets" name="setsPerDay" value="${setsPerDay}" min="1" max="5" class="input">
+          </div>
+          <div class="form-group">
+            <label for="rtRest">Pause entre séances (min)</label>
+            <input type="number" id="rtRest" name="restMinutes" value="${restMinutes}" min="0" max="720" class="input">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="rtStart">Heure de rappel <span class="text-muted">(optionnel)</span></label>
+          <input type="time" id="rtStart" name="startTime" value="${startTime}" class="input">
+        </div>
+
+        <div class="form-group">
+          <label for="rtDuration">Durée du défi (jours) <span class="text-muted">(optionnel)</span></label>
+          <input type="number" id="rtDuration" name="durationDays" value="${durationDays}" min="1" max="365" class="input">
+        </div>
+
+        <div class="form-divider"><span>Déroulé de la séance</span></div>
+        <div class="routine-plan">
+    `;
+    (obj.segments || []).forEach((seg, i) => {
+      const detail = seg.kind === 'breathe'
+        ? `${seg.durationSeconds}s`
+        : `${seg.reps} × ${seg.holdSeconds}s/${seg.releaseSeconds}s`;
+      html += `
+        <div class="routine-plan-step">
+          <span class="routine-plan-num">${i + 1}</span>
+          <span class="routine-plan-label">${escHtml(seg.label)}</span>
+          <span class="routine-plan-detail text-muted">${detail}</span>
+        </div>`;
+    });
+    html += `
+        </div>
+        <p class="text-muted text-sm">Le déroulé et les paliers de progression sont définis par le modèle et ne sont pas modifiables ici.</p>
+
+        <div class="form-actions">
+          <button type="button" class="btn btn-outline" onclick="App.archiveObjective('${obj.id}')">Archiver</button>
+          <button type="button" class="btn btn-danger" onclick="App.deleteObjective('${obj.id}')">Supprimer</button>
+          <button type="submit" class="btn btn-primary btn-block">Enregistrer</button>
+        </div>
+      </form>
+    `;
+
+    render(html);
+  }
+
+  /**
    * Échappe le HTML pour éviter les injections
    */
   function escHtml(str) {
@@ -1504,6 +1912,9 @@ const UI = (() => {
     renderProgressionRuleRow,
     renderTimedSession,
     updateTimedExerciseDisplay,
+    renderRoutineSession,
+    updateRoutineDisplay,
+    renderRoutineObjectiveForm,
     renderCounterForm,
     renderCounterView,
     renderStatsOverview,
