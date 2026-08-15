@@ -1,0 +1,10 @@
+_prive/
+**/_prive/
+graphify-out/
+node_modules/
+.claude/settings.local.json
+~$*
+*.tmp
+*conflicted copy*
+Thumbs.db
+.DS_Store

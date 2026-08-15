@@ -1,0 +1,14 @@
+name = "kountz-push"
+main = "src/index.js"
+compatibility_date = "2024-12-01"
+
+[triggers]
+crons = ["*/5 * * * *"]
+
+[[kv_namespaces]]
+binding = "KV"
+id = "cee8aeb9e6344e71a1278d87b7f3e7b1"
+
+[vars]
+VAPID_PUBLIC_KEY = "BLAl55h_79ERizIMq14zWxhuZCu3Iw3hyISKGkX9sWeSU7uSzWAJ40qNFFgXyIsiOnIv7xZfy0d53LkdDZJQJTQ"
+VAPID_SUBJECT = "mailto:swanny.l@cardzprinter.fr"
